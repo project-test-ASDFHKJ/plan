@@ -1,0 +1,369 @@
+name: Rollup Estimates and Remaining Work
+
+on:
+  projects_v2_item:
+    types: [edited]
+
+jobs:
+  rollup-to-parents:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+      repository-projects: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Rollup Estimates to Parent Issues
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            console.log('🔄 Rollup workflow triggered');
+            console.log('Event:', JSON.stringify(context.payload, null, 2));
+
+            // Get the project item that was edited
+            const projectItem = context.payload.projects_v2_item;
+            const changes = context.payload.changes;
+
+            if (!projectItem) {
+              console.log('No project item found in payload');
+              return;
+            }
+
+            // Check if estimate or remaining fields were changed
+            const estimateChanged = changes && (
+              changes.field_value?.field_name === 'Estimate' ||
+              changes.field_value?.field_name === 'Remaining'
+            );
+
+            if (!estimateChanged) {
+              console.log('Estimate or Remaining fields were not changed, skipping rollup');
+              return;
+            }
+
+            console.log(`Field changed: ${changes.field_value.field_name}`);
+
+            // Get the issue from the content node
+            const contentNodeId = projectItem.content_node_id;
+
+            // Query to get issue details from node ID
+            const issueQuery = `
+              query($nodeId: ID!) {
+                node(id: $nodeId) {
+                  ... on Issue {
+                    number
+                    title
+                    body
+                    repository {
+                      owner {
+                        login
+                      }
+                      name
+                    }
+                  }
+                }
+              }
+            `;
+
+            let issueData;
+            try {
+              const result = await github.graphql(issueQuery, {
+                nodeId: contentNodeId
+              });
+              issueData = result.node;
+            } catch (error) {
+              console.error('Error fetching issue:', error.message);
+              return;
+            }
+
+            if (!issueData) {
+              console.log('Could not resolve content to an issue');
+              return;
+            }
+
+            const issueNumber = issueData.number;
+            const issueBody = issueData.body || '';
+            console.log(`Processing issue #${issueNumber}: ${issueData.title}`);
+
+            // Extract parent issue reference
+            const parentMatch = issueBody.match(/(?:Epic|Feature|Parent Feature|Parent Epic):\s*#(\d+)/i);
+
+            if (!parentMatch) {
+              console.log('No parent issue reference found, nothing to roll up');
+              return;
+            }
+
+            const parentIssueNumber = parseInt(parentMatch[1]);
+            console.log(`Parent issue found: #${parentIssueNumber}`);
+
+            // Function to get all project fields for an issue
+            async function getProjectFields(issueNumber) {
+              const issue = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber
+              });
+
+              const issueNodeId = issue.data.node_id;
+
+              // Get all projects and their items
+              const projectQuery = `
+                query($owner: String!, $repo: String!, $issueNodeId: ID!) {
+                  repository(owner: $owner, name: $repo) {
+                    projectsV2(first: 10) {
+                      nodes {
+                        id
+                        title
+                        items(first: 100) {
+                          nodes {
+                            id
+                            content {
+                              ... on Issue {
+                                id
+                                number
+                              }
+                            }
+                            fieldValues(first: 20) {
+                              nodes {
+                                ... on ProjectV2ItemFieldNumberValue {
+                                  number
+                                  field {
+                                    ... on ProjectV2Field {
+                                      id
+                                      name
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                        fields(first: 20) {
+                          nodes {
+                            ... on ProjectV2Field {
+                              id
+                              name
+                              dataType
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              `;
+
+              const projectResult = await github.graphql(projectQuery, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issueNodeId: issueNodeId
+              });
+
+              const projects = projectResult.repository.projectsV2.nodes;
+
+              for (const project of projects) {
+                // Find the item for this issue
+                const item = project.items.nodes.find(i =>
+                  i.content && i.content.number === issueNumber
+                );
+
+                if (item) {
+                  const fields = {};
+                  item.fieldValues.nodes.forEach(fv => {
+                    if (fv.field && fv.number !== undefined) {
+                      fields[fv.field.name] = {
+                        value: fv.number,
+                        fieldId: fv.field.id
+                      };
+                    }
+                  });
+
+                  return {
+                    projectId: project.id,
+                    itemId: item.id,
+                    fields: fields,
+                    allFields: project.fields.nodes
+                  };
+                }
+              }
+
+              return null;
+            }
+
+            // Function to update project field
+            async function updateProjectField(projectId, itemId, fieldId, value) {
+              const mutation = `
+                mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: Float!) {
+                  updateProjectV2ItemFieldValue(input: {
+                    projectId: $projectId
+                    itemId: $itemId
+                    fieldId: $fieldId
+                    value: {
+                      number: $value
+                    }
+                  }) {
+                    projectV2Item {
+                      id
+                    }
+                  }
+                }
+              `;
+
+              await github.graphql(mutation, {
+                projectId: projectId,
+                itemId: itemId,
+                fieldId: fieldId,
+                value: value
+              });
+            }
+
+            // Function to find all children and sum their estimates and remaining work
+            async function calculateChildrenSums(parentNumber) {
+              const allIssues = [];
+              let page = 1;
+              let hasMore = true;
+
+              console.log(`Finding all children of #${parentNumber}...`);
+
+              while (hasMore) {
+                const issues = await github.rest.issues.listForRepo({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  state: 'all',
+                  per_page: 100,
+                  page: page
+                });
+
+                if (issues.data.length === 0) {
+                  hasMore = false;
+                } else {
+                  allIssues.push(...issues.data);
+                  page++;
+                }
+              }
+
+              // Filter children
+              const children = allIssues.filter(issue => {
+                const body = issue.body || '';
+                const parentPattern = new RegExp(`(?:Epic|Feature|Parent Feature|Parent Epic):\\s*#${parentNumber}(?:\\s|$)`, 'i');
+                return parentPattern.test(body);
+              });
+
+              console.log(`Found ${children.length} child issue(s)`);
+
+              let totalEstimate = 0;
+              let totalRemaining = 0;
+              const childDetails = [];
+
+              for (const child of children) {
+                const projectFields = await getProjectFields(child.number);
+
+                if (projectFields && projectFields.fields) {
+                  const estimate = projectFields.fields['Estimate']?.value || 0;
+                  const remaining = projectFields.fields['Remaining']?.value || 0;
+
+                  totalEstimate += estimate;
+                  totalRemaining += remaining;
+
+                  childDetails.push({
+                    number: child.number,
+                    estimate: estimate,
+                    remaining: remaining
+                  });
+
+                  console.log(`  #${child.number}: Estimate=${estimate}, Remaining=${remaining}`);
+                }
+              }
+
+              return {
+                totalEstimate,
+                totalRemaining,
+                childCount: children.length,
+                childDetails
+              };
+            }
+
+            // Function to recursively update parent chain
+            async function updateParentChain(parentNumber, depth = 0) {
+              const indent = '  '.repeat(depth);
+              console.log(`${indent}📊 Updating parent #${parentNumber}...`);
+
+              // Calculate sums from all children
+              const sums = await calculateChildrenSums(parentNumber);
+
+              console.log(`${indent}Total from ${sums.childCount} children: Estimate=${sums.totalEstimate}, Remaining=${sums.totalRemaining}`);
+
+              // Get parent's project fields
+              const parentProjectFields = await getProjectFields(parentNumber);
+
+              if (!parentProjectFields) {
+                console.log(`${indent}⚠️  Parent #${parentNumber} not found in any project`);
+                return;
+              }
+
+              // Find Estimate and Remaining field IDs
+              const estimateField = parentProjectFields.allFields.find(f => f.name === 'Estimate');
+              const remainingField = parentProjectFields.allFields.find(f => f.name === 'Remaining');
+
+              if (!estimateField || !remainingField) {
+                console.log(`${indent}⚠️  Estimate or Remaining fields not found in project`);
+                return;
+              }
+
+              // Update parent's fields
+              try {
+                await updateProjectField(
+                  parentProjectFields.projectId,
+                  parentProjectFields.itemId,
+                  estimateField.id,
+                  sums.totalEstimate
+                );
+                console.log(`${indent}✅ Updated Estimate to ${sums.totalEstimate}`);
+
+                await updateProjectField(
+                  parentProjectFields.projectId,
+                  parentProjectFields.itemId,
+                  remainingField.id,
+                  sums.totalRemaining
+                );
+                console.log(`${indent}✅ Updated Remaining to ${sums.totalRemaining}`);
+
+                // Post comment on parent
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: parentNumber,
+                  body: `### 📊 Rollup Update\n\n**Estimate**: ${sums.totalEstimate} (sum of ${sums.childCount} children)\n**Remaining**: ${sums.totalRemaining}\n\n**Children:**\n${sums.childDetails.map(c => `- #${c.number}: Estimate=${c.estimate}, Remaining=${c.remaining}`).join('\n')}\n\n*Automatically calculated from child issues*`
+                });
+
+              } catch (error) {
+                console.error(`${indent}Error updating parent:`, error.message);
+                return;
+              }
+
+              // Find grandparent and continue chain
+              const parentIssue = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: parentNumber
+              });
+
+              const parentBody = parentIssue.data.body || '';
+              const grandparentMatch = parentBody.match(/(?:Epic|Feature|Parent Feature|Parent Epic):\s*#(\d+)/i);
+
+              if (grandparentMatch) {
+                const grandparentNumber = parseInt(grandparentMatch[1]);
+                console.log(`${indent}Found grandparent #${grandparentNumber}, continuing chain...`);
+                await updateParentChain(grandparentNumber, depth + 1);
+              } else {
+                console.log(`${indent}No grandparent found, rollup complete`);
+              }
+            }
+
+            // Start the rollup chain
+            await updateParentChain(parentIssueNumber);
+
+            console.log('✅ Rollup complete!');

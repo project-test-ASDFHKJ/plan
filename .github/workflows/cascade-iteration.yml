@@ -1,0 +1,339 @@
+name: Cascade Iteration to Children
+
+on:
+  projects_v2_item:
+    types: [edited]
+
+jobs:
+  cascade-iteration:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+      repository-projects: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cascade Iteration to Descendants
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            console.log('🔄 Iteration cascade workflow triggered');
+
+            // Get the project item that was edited
+            const projectItem = context.payload.projects_v2_item;
+            const changes = context.payload.changes;
+
+            if (!projectItem) {
+              console.log('No project item found in payload');
+              return;
+            }
+
+            // Check if Iteration field was changed
+            const iterationChanged = changes && changes.field_value?.field_name === 'Iteration';
+
+            if (!iterationChanged) {
+              console.log('Iteration field was not changed, skipping cascade');
+              return;
+            }
+
+            console.log(`Iteration field changed`);
+
+            // Get the issue from the content node
+            const contentNodeId = projectItem.content_node_id;
+
+            // Query to get issue details from node ID
+            const issueQuery = `
+              query($nodeId: ID!) {
+                node(id: $nodeId) {
+                  ... on Issue {
+                    number
+                    title
+                    body
+                    repository {
+                      owner {
+                        login
+                      }
+                      name
+                    }
+                  }
+                }
+              }
+            `;
+
+            let issueData;
+            try {
+              const result = await github.graphql(issueQuery, {
+                nodeId: contentNodeId
+              });
+              issueData = result.node;
+            } catch (error) {
+              console.error('Error fetching issue:', error.message);
+              return;
+            }
+
+            if (!issueData) {
+              console.log('Could not resolve content to an issue');
+              return;
+            }
+
+            const issueNumber = issueData.number;
+            console.log(`Processing issue #${issueNumber}: ${issueData.title}`);
+
+            // Function to find all child issues
+            async function findChildIssues(parentNumber) {
+              const allIssues = [];
+              let page = 1;
+              let hasMore = true;
+
+              while (hasMore) {
+                const issues = await github.rest.issues.listForRepo({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  state: 'all',
+                  per_page: 100,
+                  page: page
+                });
+
+                if (issues.data.length === 0) {
+                  hasMore = false;
+                } else {
+                  allIssues.push(...issues.data);
+                  page++;
+                }
+              }
+
+              // Filter issues that reference this issue as parent
+              const children = allIssues.filter(issue => {
+                const body = issue.body || '';
+                const parentPattern = new RegExp(`(?:Epic|Feature|Parent Feature|Parent Epic):\\s*#${parentNumber}(?:\\s|$)`, 'i');
+                return parentPattern.test(body);
+              });
+
+              console.log(`Found ${children.length} child issue(s) of #${parentNumber}`);
+              return children;
+            }
+
+            // Function to get project item and iteration for an issue
+            async function getProjectIteration(issueNumber) {
+              const issue = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber
+              });
+
+              const issueNodeId = issue.data.node_id;
+
+              // Get all projects and their items
+              const projectQuery = `
+                query($owner: String!, $repo: String!) {
+                  repository(owner: $owner, name: $repo) {
+                    projectsV2(first: 10) {
+                      nodes {
+                        id
+                        title
+                        items(first: 100) {
+                          nodes {
+                            id
+                            content {
+                              ... on Issue {
+                                id
+                                number
+                              }
+                            }
+                            fieldValues(first: 20) {
+                              nodes {
+                                ... on ProjectV2ItemFieldIterationValue {
+                                  title
+                                  duration
+                                  startDate
+                                  id
+                                  iterationId
+                                  field {
+                                    ... on ProjectV2IterationField {
+                                      id
+                                      name
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                        fields(first: 20) {
+                          nodes {
+                            ... on ProjectV2IterationField {
+                              id
+                              name
+                              configuration {
+                                iterations {
+                                  id
+                                  title
+                                  startDate
+                                  duration
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              `;
+
+              const projectResult = await github.graphql(projectQuery, {
+                owner: context.repo.owner,
+                repo: context.repo.repo
+              });
+
+              const projects = projectResult.repository.projectsV2.nodes;
+
+              for (const project of projects) {
+                // Find the item for this issue
+                const item = project.items.nodes.find(i =>
+                  i.content && i.content.number === issueNumber
+                );
+
+                if (item) {
+                  // Find iteration value
+                  const iterationValue = item.fieldValues.nodes.find(fv =>
+                    fv.field && fv.field.name === 'Iteration'
+                  );
+
+                  // Find iteration field
+                  const iterationField = project.fields.nodes.find(f =>
+                    f.name === 'Iteration'
+                  );
+
+                  return {
+                    projectId: project.id,
+                    itemId: item.id,
+                    iteration: iterationValue ? {
+                      id: iterationValue.iterationId,
+                      title: iterationValue.title
+                    } : null,
+                    iterationField: iterationField
+                  };
+                }
+              }
+
+              return null;
+            }
+
+            // Function to update iteration field
+            async function updateIterationField(projectId, itemId, fieldId, iterationId) {
+              const mutation = `
+                mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $iterationId: String!) {
+                  updateProjectV2ItemFieldValue(input: {
+                    projectId: $projectId
+                    itemId: $itemId
+                    fieldId: $fieldId
+                    value: {
+                      iterationId: $iterationId
+                    }
+                  }) {
+                    projectV2Item {
+                      id
+                    }
+                  }
+                }
+              `;
+
+              await github.graphql(mutation, {
+                projectId: projectId,
+                itemId: itemId,
+                fieldId: fieldId,
+                iterationId: iterationId
+              });
+            }
+
+            // Function to recursively update all descendants with iteration
+            async function updateDescendantsIteration(parentNumber, iteration, depth = 0, updatedIssues = new Set()) {
+              const indent = '  '.repeat(depth);
+              console.log(`${indent}Cascading iteration to descendants of #${parentNumber}...`);
+
+              const children = await findChildIssues(parentNumber);
+
+              for (const child of children) {
+                // Avoid infinite loops
+                if (updatedIssues.has(child.number)) {
+                  console.log(`${indent}⏭️  Skipping #${child.number} (already processed)`);
+                  continue;
+                }
+
+                updatedIssues.add(child.number);
+
+                // Get child's project info
+                const childProjectInfo = await getProjectIteration(child.number);
+
+                if (!childProjectInfo) {
+                  console.log(`${indent}⚠️  #${child.number} not found in any project`);
+                  continue;
+                }
+
+                const currentIteration = childProjectInfo.iteration?.title || 'none';
+                const targetIteration = iteration?.title || 'none';
+
+                if (currentIteration !== targetIteration) {
+                  console.log(`${indent}📝 Updating #${child.number} iteration from "${currentIteration}" to "${targetIteration}"`);
+
+                  try {
+                    if (iteration && iteration.id) {
+                      await updateIterationField(
+                        childProjectInfo.projectId,
+                        childProjectInfo.itemId,
+                        childProjectInfo.iterationField.id,
+                        iteration.id
+                      );
+                      console.log(`${indent}✅ Updated #${child.number}`);
+                    } else {
+                      console.log(`${indent}ℹ️  No iteration to set on #${child.number}`);
+                    }
+                  } catch (error) {
+                    console.error(`${indent}Error updating #${child.number}:`, error.message);
+                  }
+                } else {
+                  console.log(`${indent}⏭️  #${child.number} already has correct iteration`);
+                }
+
+                // Recursively update grandchildren
+                await updateDescendantsIteration(child.number, iteration, depth + 1, updatedIssues);
+              }
+
+              return updatedIssues;
+            }
+
+            // Get the current issue's iteration
+            const parentProjectInfo = await getProjectIteration(issueNumber);
+
+            if (!parentProjectInfo) {
+              console.log('Parent issue not found in any project');
+              return;
+            }
+
+            const iteration = parentProjectInfo.iteration;
+            console.log(`Parent iteration: ${iteration?.title || 'none'}`);
+
+            // Start cascading
+            const updatedDescendants = await updateDescendantsIteration(issueNumber, iteration);
+
+            if (updatedDescendants.size > 0) {
+              console.log(`✅ Updated ${updatedDescendants.size} descendant issue(s) with iteration "${iteration?.title || 'none'}"`);
+
+              // Post comment on parent
+              const descendantList = Array.from(updatedDescendants).map(n => `#${n}`).join(', ');
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `### 🔄 Iteration Cascade\n\n**Iteration**: ${iteration?.title || 'Cleared'}\n\n**Updated descendants** (${updatedDescendants.size}): ${descendantList}\n\n*Automatically propagated to all child issues*`
+              });
+            } else {
+              console.log('ℹ️  No descendants found or all already up-to-date');
+            }
+
+            console.log('✅ Iteration cascade complete!');

@@ -11,18 +11,36 @@ When you create an issue using one of the templates, the GitHub Action will auto
 - Add the issue to your GitHub Project
 - Set the "Type" field in the project board to match the issue type
 
-### 2. Cascading Milestone Inheritance
-Child issues automatically inherit milestones from their parent issues, and this inheritance **cascades down the entire hierarchy**:
-- **Task** → inherits milestone from parent **Feature** or **User Story**
-- **User Story** → inherits milestone from parent **Feature**
-- **Feature** → inherits milestone from parent **Epic**
+### 2. Cascading Milestone & Iteration Inheritance
+Child issues automatically inherit **milestones** and **iterations** from their parent issues, and this inheritance **cascades down the entire hierarchy**:
+- **Task** → inherits from parent **Feature** or **User Story**
+- **User Story** → inherits from parent **Feature**
+- **Feature** → inherits from parent **Epic**
 
-**Cascading behavior:** When you change a milestone on any issue, the automation will:
+**Cascading behavior:** When you change a milestone or iteration on any issue, the automation will:
 1. Find all direct children (Features under an Epic, Stories under a Feature, Tasks under a Story)
 2. Recursively find all descendants (grandchildren, great-grandchildren, etc.)
-3. Update the milestone on ALL descendants automatically
+3. Update the milestone/iteration on ALL descendants automatically
 
-This ensures consistent milestone tracking across your entire issue hierarchy, no matter how deep.
+This ensures consistent milestone and iteration tracking across your entire issue hierarchy, no matter how deep.
+
+### 3. Automatic Estimate & Remaining Work Rollup
+Parent issues automatically calculate their **Estimate** and **Remaining** work by summing values from all child issues:
+- When you update a Task's remaining work, the parent Feature/Story automatically updates
+- When a Feature's estimate changes, the parent Epic automatically recalculates
+- This **rolls up the entire hierarchy** recursively
+
+**Example:**
+- Epic #100 has two Features:
+  - Feature #101: Estimate=8h, Remaining=3h
+  - Feature #102: Estimate=5h, Remaining=2h
+- Epic #100 automatically shows: Estimate=13h, Remaining=5h
+
+**Key benefits:**
+- Always accurate project metrics at every level
+- No manual calculation needed
+- Real-time progress tracking across the entire hierarchy
+- Perfect for sprint planning and burndown charts
 
 ## Setup Requirements
 
@@ -54,23 +72,53 @@ gh api orgs/:org/issue-types
 
 ### 3. Add Project Board Fields
 
-In your GitHub Project (v2), create a **Single Select** field named **"Type"** with the following options:
-- Epic
-- Feature
-- User Story
-- Task
+In your GitHub Project (v2), create the following fields:
 
-To add this field:
+#### Type Field (Single Select)
 1. Open your project
 2. Click the **+** icon in the column headers
 3. Select **New field**
 4. Name it **"Type"**
 5. Choose **Single select**
-6. Add the four options listed above
+6. Add these options:
+   - Epic
+   - Feature
+   - User Story
+   - Task
+
+#### Estimate Field (Number)
+1. Click the **+** icon in the column headers
+2. Select **New field**
+3. Name it **"Estimate"**
+4. Choose **Number**
+5. This will store estimated hours/story points
+
+#### Remaining Field (Number)
+1. Click the **+** icon in the column headers
+2. Select **New field**
+3. Name it **"Remaining"**
+4. Choose **Number**
+5. This will store remaining work
+
+#### Iteration Field (Iteration)
+1. Click the **+** icon in the column headers
+2. Select **New field**
+3. Name it **"Iteration"**
+4. Choose **Iteration**
+5. Configure your sprint/iteration schedule (e.g., 2-week sprints)
+
+**Note:**
+- The Estimate and Remaining fields are required for the automatic rollup feature to work
+- The Iteration field is required for iteration inheritance to work
 
 ### 4. Enable GitHub Actions
 
-The workflow is located at `.github/workflows/issue-automation.yml` and will automatically run when:
+Three workflows work together to automate your project management:
+
+#### Issue Automation Workflow
+Location: `.github/workflows/issue-automation.yml`
+
+Triggers on:
 - A new issue is **created** (`opened`)
 - An existing issue is **edited** (`edited`)
 - An issue is **reopened** (`reopened`)
@@ -81,12 +129,37 @@ The workflow is located at `.github/workflows/issue-automation.yml` and will aut
 - A label is **added** (`labeled`)
 - A label is **removed** (`unlabeled`)
 
-This comprehensive set of triggers ensures that:
-- Type fields stay synchronized when issues are edited
-- Milestones cascade immediately when changed
-- All descendants update when a parent's milestone changes
+This workflow handles:
+- Setting issue types
+- Setting project board fields
+- Inheriting milestones from parents
+- Cascading milestone changes to descendants
 
-No additional configuration is needed - the workflow uses the default `GITHUB_TOKEN`.
+#### Rollup Estimates Workflow
+Location: `.github/workflows/rollup-estimates.yml`
+
+Triggers on:
+- A project item's **Estimate** or **Remaining** field is updated (`projects_v2_item.edited`)
+
+This workflow handles:
+- Calculating sum of all children's estimates
+- Calculating sum of all children's remaining work
+- Updating parent issue with rolled-up values
+- Recursively updating the entire ancestor chain
+
+#### Cascade Iteration Workflow
+Location: `.github/workflows/cascade-iteration.yml`
+
+Triggers on:
+- A project item's **Iteration** field is updated (`projects_v2_item.edited`)
+
+This workflow handles:
+- Detecting iteration changes on parent issues
+- Finding all child and descendant issues
+- Updating iteration field on all descendants
+- Recursively cascading through the entire hierarchy
+
+No additional configuration is needed - all workflows use the default `GITHUB_TOKEN`.
 
 ## Usage
 
@@ -134,7 +207,9 @@ Epic (#100) [Milestone: Q1 2025]
 
 ## Automation Details
 
-When an issue is created, edited, or has a milestone changed, the workflow:
+### Issue Automation Workflow
+
+When an issue is created, edited, or has a milestone changed:
 
 1. **Detects Type** from title prefix (`[EPIC]`, `[FEATURE]`, `[STORY]`, `[Task]`)
 2. **Sets GitHub Issue Type** using the organizational issue type system
@@ -152,6 +227,27 @@ When an issue is created, edited, or has a milestone changed, the workflow:
    - Issue type assignment
    - Milestone inheritance from parent
    - List of all descendants updated with the new milestone
+
+### Rollup Estimates Workflow
+
+When a project item's Estimate or Remaining field is updated:
+
+1. **Detects the change** to Estimate or Remaining field
+2. **Identifies the issue** from the project item
+3. **Finds the parent** issue from the issue body
+4. **Collects all children** of the parent issue
+5. **Reads each child's values** for Estimate and Remaining from the project
+6. **Calculates totals**:
+   - Sum of all children's Estimate values
+   - Sum of all children's Remaining values
+7. **Updates parent's fields** in the project with the totals
+8. **Posts comment on parent** showing breakdown by child
+9. **Recursively updates ancestors**:
+   - Finds grandparent and repeats the process
+   - Continues up the hierarchy to the root Epic
+   - Ensures all ancestors have accurate rolled-up values
+
+**Result:** Any change to a leaf task automatically propagates up through the entire hierarchy, keeping all parent estimates accurate.
 
 ## Troubleshooting
 
@@ -228,7 +324,9 @@ Add your custom parent keywords to the regex pattern.
 
 ## Files
 
-- `.github/workflows/issue-automation.yml` - Main automation workflow
+- `.github/workflows/issue-automation.yml` - Main automation workflow (type, milestone, cascading)
+- `.github/workflows/rollup-estimates.yml` - Rollup automation (estimate, remaining work)
+- `.github/workflows/cascade-iteration.yml` - Iteration cascade automation (sprint/iteration inheritance)
 - `.github/ISSUE_TEMPLATE/epic.md` - Epic template
 - `.github/ISSUE_TEMPLATE/feature.md` - Feature template
 - `.github/ISSUE_TEMPLATE/user-story.md` - User Story template
@@ -240,9 +338,11 @@ Add your custom parent keywords to the regex pattern.
 - **Efficiency**: Save time by automating repetitive tasks - update one epic and cascade to hundreds of descendants
 - **Traceability**: Clear parent-child relationships with milestone inheritance at every level
 - **Visibility**: Project boards stay up-to-date automatically across the entire hierarchy
+- **Accurate Metrics**: Real-time rollup of estimates and remaining work at every level
 - **Scalability**: Works seamlessly as your project grows - handles deep hierarchies without performance issues
 - **Reliability**: Prevents orphaned issues with different milestones from their parents
-- **Zero Maintenance**: Set it up once and let automation handle milestone synchronization forever
+- **Zero Maintenance**: Set it up once and let automation handle synchronization forever
+- **Agile-Ready**: Perfect for sprint planning, burndown charts, and velocity tracking
 
 ## Example Workflow
 
