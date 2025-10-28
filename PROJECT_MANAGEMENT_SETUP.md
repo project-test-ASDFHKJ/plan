@@ -159,36 +159,47 @@ This workflow handles:
 - Inheriting milestones from parents
 - Cascading milestone changes to descendants
 
-#### Rollup Estimates Workflow
-Location: `.github/workflows/rollup-estimates.yml`
+#### Scheduled Rollup Workflow
+Location: `.github/workflows/scheduled-rollup.yml`
 
 Triggers on:
-- **Automatically**: When you edit a child issue, the rollup triggers automatically
-- **Manual dispatch**: Run manually if needed
+- **Automatically every minute**: Runs on a schedule to keep all estimates in sync
+- **Manual dispatch**: Can be triggered manually if needed
 
 This workflow handles:
-- Calculating sum of all children's estimates
+- Scanning ALL issues in the repository
+- Calculating sum of all children's estimates for each parent
 - Calculating sum of all children's remaining work
-- Updating parent issue with rolled-up values
-- Recursively updating the entire ancestor chain
+- Updating parent issues with rolled-up values
+- Only updates when values have changed (efficient)
 
-**How Automatic Rollup Works:**
-1. Update Estimate/Remaining fields in the project board for a child issue
-2. Make a small edit to trigger the automation:
-   - Add a comment to the issue, OR
-   - Click the issue title in the project board and make any small edit
-3. The issue-automation workflow detects the edit and automatically triggers the rollup
-4. Parent estimates update automatically within seconds
+**How It Works:**
+1. Update Estimate/Remaining fields in the project board for any child issue
+2. Wait up to 1 minute - the scheduled workflow runs automatically
+3. Parent estimates update automatically across the entire hierarchy
+4. **No manual intervention needed!**
 
 **Manual Trigger (optional):**
 ```bash
-# If needed, you can still trigger rollup manually:
-gh workflow run rollup-estimates.yml -f issue_number=123
+# Trigger immediately instead of waiting for the schedule:
+gh workflow run scheduled-rollup.yml
 ```
 
-Or via GitHub UI: Actions → Rollup Estimates → Run workflow → Enter issue number
+Or via GitHub UI: Actions → Scheduled Rollup → Run workflow
 
-**Note:** GitHub Actions doesn't directly detect project field changes. The small edit step triggers the automation.
+**Benefits:**
+- Fully automatic - no need to edit issues or add labels
+- Updates ALL parent issues in one run
+- Efficient - only updates when values change
+- Reliable - runs every minute on schedule
+
+### Manual Rollup Workflow (Legacy)
+Location: `.github/workflows/rollup-estimates.yml`
+
+This workflow is still available for manual triggering of specific issues:
+```bash
+gh workflow run rollup-estimates.yml -f issue_number=123
+```
 
 #### Cascade Iteration Workflow
 Location: `.github/workflows/cascade-iteration.yml`
