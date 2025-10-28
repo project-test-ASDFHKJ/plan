@@ -2,7 +2,7 @@
 name: Epic
 about: Create an epic to track a large initiative or project goal
 title: "[EPIC] "
-labels: 'Epic'
+labels: ''
 assignees: ''
 
 ---
@@ -57,6 +57,6 @@ assignees: ''
 
 ---
 **Note**: When this issue is created, automation will:
+- ✅ Set the GitHub Issue Type to "Epic"
 - ✅ Set the Type field to "Epic" in your project board
-- ✅ Add the "Epic" label
 - ✅ Child features will automatically inherit the milestone when you assign one to this epic

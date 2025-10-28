@@ -2,7 +2,7 @@
 name: Task
 about: Unit of work to be done
 title: "[Task] "
-labels: 'Task'
+labels: ''
 assignees: ''
 
 ---
@@ -25,6 +25,6 @@ Feature: #
 
 ---
 **Note**: When this issue is created, automation will:
+- ✅ Set the GitHub Issue Type to "Task"
 - ✅ Set the Type field to "Task" in your project board
 - ✅ Inherit the milestone from the parent feature (if set)
-- ✅ Add the "Task" label

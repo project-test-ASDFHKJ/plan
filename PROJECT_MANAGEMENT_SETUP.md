@@ -7,9 +7,9 @@ This repository includes automated project management workflows for GitHub Issue
 ### 1. Automatic Type Assignment
 When you create an issue using one of the templates, the GitHub Action will automatically:
 - Detect the issue type from the title prefix (`[EPIC]`, `[FEATURE]`, `[STORY]`, `[Task]`)
+- Set the GitHub **Issue Type** field (organizational issue types)
 - Add the issue to your GitHub Project
 - Set the "Type" field in the project board to match the issue type
-- Add the corresponding label to the issue
 
 ### 2. Cascading Milestone Inheritance
 Child issues automatically inherit milestones from their parent issues, and this inheritance **cascades down the entire hierarchy**:
@@ -33,9 +33,28 @@ This ensures consistent milestone tracking across your entire issue hierarchy, n
 3. Choose **Table** or **Board** view
 4. Create your project
 
-### 2. Add Required Fields
+### 2. Configure Organizational Issue Types
 
-In your project, create a **Single Select** field named **"Type"** with the following options:
+GitHub organizations support custom issue types. You need to configure these in your organization settings:
+
+1. Go to your **Organization settings**
+2. Navigate to **Issues** → **Issue types**
+3. Create the following issue types:
+   - `Epic`
+   - `Feature`
+   - `User Story`
+   - `Task`
+
+**To check your existing issue types:**
+```bash
+gh api orgs/:org/issue-types
+```
+
+**Note:** Only users with push access to the repository can set issue types. The automation requires the workflow to have appropriate permissions.
+
+### 3. Add Project Board Fields
+
+In your GitHub Project (v2), create a **Single Select** field named **"Type"** with the following options:
 - Epic
 - Feature
 - User Story
@@ -48,16 +67,6 @@ To add this field:
 4. Name it **"Type"**
 5. Choose **Single select**
 6. Add the four options listed above
-
-### 3. Create Labels
-
-Create the following labels in your repository:
-1. Go to **Issues** → **Labels**
-2. Create these labels:
-   - `Epic`
-   - `Feature`
-   - `User Story`
-   - `Task`
 
 ### 4. Enable GitHub Actions
 
@@ -128,25 +137,32 @@ Epic (#100) [Milestone: Q1 2025]
 When an issue is created, edited, or has a milestone changed, the workflow:
 
 1. **Detects Type** from title prefix (`[EPIC]`, `[FEATURE]`, `[STORY]`, `[Task]`)
-2. **Finds Parent Issue** by parsing the issue body for parent references
-3. **Fetches Parent Milestone** if a parent is found
-4. **Sets Milestone** on the current issue (inherited from parent)
-5. **Adds to Project** if not already added
-6. **Updates Type Field** in the project board
-7. **Adds Label** matching the type
+2. **Sets GitHub Issue Type** using the organizational issue type system
+3. **Finds Parent Issue** by parsing the issue body for parent references
+4. **Fetches Parent Milestone** if a parent is found
+5. **Sets Milestone** on the current issue (inherited from parent)
+6. **Adds to Project** if not already added
+7. **Updates Project Type Field** in the project board
 8. **Cascades Milestone Changes** recursively to ALL descendants:
    - Searches all issues for those that reference this issue as a parent
    - Updates each child's milestone
    - Recursively updates grandchildren, great-grandchildren, etc.
    - Prevents infinite loops by tracking already-updated issues
 9. **Posts Summary Comment** showing:
-   - Type assignment
+   - Issue type assignment
    - Milestone inheritance from parent
    - List of all descendants updated with the new milestone
 
 ## Troubleshooting
 
-### Type field not being set
+### Issue Type not being set
+- Verify your organization has configured the issue types: Epic, Feature, User Story, Task
+- Check issue types with: `gh api orgs/:org/issue-types`
+- Ensure the GitHub Action has push access to the repository
+- View the GitHub Actions logs for detailed error messages
+- Note: Issue types are an organizational feature and require organization-level configuration
+
+### Project Type field not being set
 - Verify your project has a **Single Select** field named exactly "Type"
 - Check that the field has options matching: Epic, Feature, User Story, Task
 - View the GitHub Actions logs for detailed error messages
@@ -161,22 +177,54 @@ When an issue is created, edited, or has a milestone changed, the workflow:
 - Check that GitHub Actions has the necessary permissions
 - View the Actions log for detailed error messages
 
+## Creating Issues Manually with Issue Types
+
+You can also create issues with issue types directly using the GitHub CLI:
+
+```bash
+echo '{
+  "title": "[Task] Your issue title",
+  "body": "Feature: #123\n\nIssue description...",
+  "type": "Task"
+}' | gh api repos/:owner/:repo/issues --method POST --input -
+```
+
+**Key points:**
+- The `type` field sets the organizational issue type
+- Only users with push access can set the type field
+- The `:owner/:repo` placeholders are automatically resolved by `gh` when run from within a git repo
+
+**Example creating a Feature:**
+```bash
+echo '{
+  "title": "[FEATURE] OAuth Integration",
+  "body": "Epic: #100\n\n## Feature Description\nIntegrate OAuth authentication...",
+  "type": "Feature"
+}' | gh api repos/:owner/:repo/issues --method POST --input -
+```
+
 ## Customization
 
 ### Adding More Issue Types
 
-1. Create a new template in `.github/ISSUE_TEMPLATE/`
-2. Use a unique title prefix (e.g., `[BUG]`)
-3. Update the workflow at line 20-30 to detect the new prefix
-4. Add the new type to your project's "Type" field
-5. Create a matching label
+1. **Add to organization issue types** - Configure the new type in your organization settings
+2. **Create template** - Add a new template in `.github/ISSUE_TEMPLATE/`
+3. **Use unique prefix** - Use a unique title prefix (e.g., `[BUG]`)
+4. **Update workflow** - Update the workflow at line 111-121 to detect the new prefix:
+   ```javascript
+   } else if (issueTitle.startsWith('[BUG]')) {
+     issueType = 'Bug';
+   ```
+5. **Update project field** - Add the new type to your project's "Type" field options
 
 ### Changing Parent Reference Format
 
-Edit the regex pattern at line 39 in `issue-automation.yml`:
+Edit the regex pattern at line 126 in `issue-automation.yml`:
 ```javascript
 const parentMatch = issueBody.match(/(?:Epic|Feature|Parent Feature|Parent Epic):\s*#(\d+)/i);
 ```
+
+Add your custom parent keywords to the regex pattern.
 
 ## Files
 

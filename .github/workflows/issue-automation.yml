@@ -162,18 +162,20 @@ jobs:
               console.log('No parent issue reference found in issue body');
             }
 
-            // Add label based on type
+            // Set GitHub Issue Type field (organizational issue type)
             if (issueType) {
               try {
-                await github.rest.issues.addLabels({
+                await github.rest.issues.update({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: issueNumber,
-                  labels: [issueType]
+                  type: issueType
                 });
-                console.log(`✅ Label "${issueType}" added to issue`);
+                console.log(`✅ Issue Type set to "${issueType}"`);
               } catch (error) {
-                console.error('Error adding label:', error.message);
+                console.error('Error setting issue type:', error.message);
+                console.log('⚠️  Note: Issue types require push access and must be configured in your organization');
+                console.log('⚠️  Available types can be checked with: gh api orgs/:org/issue-types');
               }
             }
 

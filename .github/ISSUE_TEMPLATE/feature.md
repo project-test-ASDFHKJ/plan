@@ -2,7 +2,7 @@
 name: Feature
 about: Define a feature that delivers specific functionality
 title: "[FEATURE] "
-labels: 'Feature'
+labels: ''
 assignees: ''
 
 ---
@@ -65,6 +65,6 @@ Epic: #
 
 ---
 **Note**: When this issue is created, automation will:
+- ✅ Set the GitHub Issue Type to "Feature"
 - ✅ Set the Type field to "Feature" in your project board
 - ✅ Inherit the milestone from the parent epic (if set)
-- ✅ Add the "Feature" label

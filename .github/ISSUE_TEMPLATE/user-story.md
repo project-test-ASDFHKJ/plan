@@ -2,7 +2,7 @@
 name: User Story
 about: Capture a user requirement or need
 title: "[STORY] "
-labels: 'User Story'
+labels: ''
 assignees: ''
 
 ---
@@ -36,6 +36,6 @@ Feature: #
 
 ---
 **Note**: When this issue is created, automation will:
+- ✅ Set the GitHub Issue Type to "User Story"
 - ✅ Set the Type field to "User Story" in your project board
 - ✅ Inherit the milestone from the parent feature (if set)
-- ✅ Add the "User Story" label
