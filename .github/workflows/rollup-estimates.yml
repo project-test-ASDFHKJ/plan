@@ -17,7 +17,8 @@ jobs:
       issues: write
       contents: read
       repository-projects: write
-      organization-projects: write
+      # Note: GITHUB_TOKEN cannot access organization-level projects
+      # Organization projects require elevated permissions
 
     steps:
       - name: Checkout repository

@@ -17,7 +17,6 @@ jobs:
       issues: write
       contents: read
       repository-projects: write
-      organization-projects: write
 
     steps:
       - name: Checkout repository
