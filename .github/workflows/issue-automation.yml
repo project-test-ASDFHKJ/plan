@@ -59,8 +59,10 @@ jobs:
               // Filter issues that reference this issue as parent
               const children = allIssues.filter(issue => {
                 const body = issue.body || '';
+                // Remove HTML comments to avoid matching examples
+                const bodyWithoutComments = body.replace(/<!--[\s\S]*?-->/g, '');
                 const parentPattern = new RegExp(`(?:Epic|Feature|Parent Feature|Parent Epic):\\s*#${parentNumber}(?:\\s|$)`, 'i');
-                return parentPattern.test(body);
+                return parentPattern.test(bodyWithoutComments);
               });
 
               console.log(`Found ${children.length} child issue(s) of #${parentNumber}`);
@@ -122,8 +124,11 @@ jobs:
 
             console.log(`Issue #${issueNumber}: Type detected as "${issueType}"`);
 
+            // Remove HTML comments from body to avoid matching examples
+            const bodyWithoutComments = issueBody.replace(/<!--[\s\S]*?-->/g, '');
+
             // Extract parent issue reference
-            const parentMatch = issueBody.match(/(?:Epic|Feature|Parent Feature|Parent Epic):\s*#(\d+)/i);
+            const parentMatch = bodyWithoutComments.match(/(?:Epic|Feature|Parent Feature|Parent Epic):\s*#(\d+)/i);
             let parentIssueNumber = null;
             let parentMilestone = null;
 

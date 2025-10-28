@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       issue_number:
-        description: 'Issue number to rollup estimates from (child issue that was updated)'
+        description: 'Task/Story number that was updated (triggers bottom-up rollup to parents)'
         required: true
         type: number
   issues:
@@ -28,19 +28,20 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             console.log('🔄 Rollup workflow triggered');
+            console.log('=====================================');
 
             // Determine issue number based on trigger type
             let issueNumber;
             if (context.eventName === 'workflow_dispatch') {
               // Manual trigger
               issueNumber = parseInt(context.payload.inputs.issue_number);
-              console.log(`Manual trigger for issue #${issueNumber}`);
+              console.log(`📋 Manual trigger for issue #${issueNumber}`);
             } else if (context.eventName === 'issues') {
               // Issue event trigger
               issueNumber = context.issue.number;
-              console.log(`Issue event trigger for issue #${issueNumber}`);
+              console.log(`📋 Issue event trigger for issue #${issueNumber}`);
             } else {
-              console.log('Unknown trigger type');
+              console.log('❌ Unknown trigger type');
               return;
             }
 
@@ -52,18 +53,26 @@ jobs:
             });
 
             const issueBody = issue.data.body || '';
-            console.log(`Processing issue #${issueNumber}: ${issue.data.title}`);
+            console.log(`📌 Processing: #${issueNumber} - ${issue.data.title}`);
+            console.log(`📊 Workflow: CHILD → PARENT rollup (bottom-up)`);
+            console.log('=====================================\n');
+
+            // Remove HTML comments from body to avoid matching examples
+            const bodyWithoutComments = issueBody.replace(/<!--[\s\S]*?-->/g, '');
 
             // Extract parent issue reference
-            const parentMatch = issueBody.match(/(?:Epic|Feature|Parent Feature|Parent Epic):\s*#(\d+)/i);
+            const parentMatch = bodyWithoutComments.match(/(?:Epic|Feature|Parent Feature|Parent Epic):\s*#(\d+)/i);
 
             if (!parentMatch) {
-              console.log('No parent issue reference found, nothing to roll up');
+              console.log('ℹ️  No parent issue reference found');
+              console.log('This issue is either:');
+              console.log('  - A top-level Epic (no parent needed)');
+              console.log('  - Missing a parent reference in the body');
               return;
             }
 
             const parentIssueNumber = parseInt(parentMatch[1]);
-            console.log(`Parent issue found: #${parentIssueNumber}`);
+            console.log(`✅ Parent issue found: #${parentIssueNumber}`);
 
             // Function to get all project fields for an issue
             async function getProjectFields(issueNumber) {
@@ -253,6 +262,18 @@ jobs:
             async function updateParentChain(parentNumber, depth = 0) {
               const indent = '  '.repeat(depth);
               console.log(`${indent}📊 Updating parent #${parentNumber}...`);
+
+              // Check if parent issue exists
+              try {
+                await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: parentNumber
+                });
+              } catch (error) {
+                console.error(`${indent}❌ Parent issue #${parentNumber} not found (404)`);
+                return;
+              }
 
               // Calculate sums from all children
               const sums = await calculateChildrenSums(parentNumber);

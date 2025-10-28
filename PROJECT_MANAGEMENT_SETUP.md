@@ -416,16 +416,52 @@ This saves you from manually updating each issue individually - the entire hiera
    - Task #105, #106
 4. **Comment posted** on Epic #100 showing all updated issues
 
-### Estimate Rollup Example
+### Estimate Rollup Example (Bottom-Up)
 
-1. **Update Task #103** in your project: Estimate=5, Remaining=2
-2. **Trigger the rollup workflow**:
+**Important:** Always trigger the rollup from the **Task level** (the child that was updated), not the parent!
+
+#### Scenario: You've just updated estimates on a Task
+
+1. **Create/Update Task #103** in your project:
+   - Set Estimate=5 hours
+   - Set Remaining=2 hours
+   - Ensure the body has: `Feature: #101`
+
+2. **Trigger the rollup FROM THE TASK**:
    ```bash
    gh workflow run rollup-estimates.yml -f issue_number=103
    ```
    Or via GitHub UI: Actions → Rollup Estimates → Run workflow → Enter `103`
-3. **Parent Feature #101** automatically calculates:
-   - Sums all child estimates
-   - Sums all child remaining work
-4. **Grandparent Epic #100** also updates recursively
-5. **Comments posted** on each parent showing the breakdown
+
+3. **What happens (bottom-up cascade)**:
+   ```
+   Task #103 (Estimate=5, Remaining=2)
+      ↓ Triggers rollup for parent
+   Feature #101 (Sum of all its Tasks)
+      ↓ Triggers rollup for its parent
+   Epic #100 (Sum of all its Features)
+      ↓ No more parents, done!
+   ```
+
+4. **Results**:
+   - Feature #101 shows the **sum** of all its child Tasks
+   - Epic #100 shows the **sum** of all its child Features
+   - Comments posted on each parent showing the detailed breakdown
+
+#### Example with Multiple Tasks:
+
+```
+Epic #100
+├── Feature #101
+│   ├── Task #103: Estimate=5, Remaining=2
+│   ├── Task #104: Estimate=3, Remaining=1
+│   └── Task #105: Estimate=8, Remaining=5
+└── Feature #102
+    └── Task #106: Estimate=4, Remaining=4
+```
+
+**After updating Task #103 and running rollup**:
+- Feature #101: Estimate=16 (5+3+8), Remaining=8 (2+1+5)
+- Epic #100: Estimate=20 (16+4), Remaining=12 (8+4)
+
+**Key Point:** Run the workflow **once per Task update**, and it cascades up automatically!
