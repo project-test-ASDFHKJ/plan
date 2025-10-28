@@ -42,6 +42,54 @@ Parent issues automatically calculate their **Estimate** and **Remaining** work 
 - Real-time progress tracking across the entire hierarchy
 - Perfect for sprint planning and burndown charts
 
+### 4. Auto-Close/Reopen Parent Issues
+Parent issues automatically close when all children are completed, and reopen if any child is reopened:
+- When you close the last child Task/Story, the parent Feature automatically closes
+- When you close the last child Feature, the parent Epic automatically closes
+- If you reopen any closed child, the parent automatically reopens
+- This **cascades up the entire hierarchy** recursively
+
+**Example:**
+- Epic #100 has two Features: #101 (closed) and #102 (open)
+- When you close Feature #102, Epic #100 automatically closes
+- If you later reopen Feature #102, Epic #100 automatically reopens
+
+**Key benefits:**
+- No forgotten open parent issues
+- Hierarchy state stays synchronized
+- Clear visibility of completion status
+- Automatic cleanup when all work is done
+
+### 5. Estimate Validation
+Tasks and User Stories are validated before moving to "In Progress" status:
+- If Status is set to "In Progress" but Estimate is 0 or missing, a warning is triggered
+- A `needs-estimate` label is automatically added
+- A warning comment is posted explaining the issue
+- The label is removed once an estimate is set
+
+**Key benefits:**
+- Ensures proper planning before work starts
+- Prevents tracking issues with incomplete estimates
+- Visual indicator via labels
+- Encourages estimation discipline
+
+### 6. Burndown Report Generation
+Automated daily burndown reports track progress across all iterations:
+- Generates a markdown report showing sprint progress
+- Tracks total estimate, remaining work, and completion percentage
+- Calculates daily velocity (work completed per day)
+- Projects completion date based on current velocity
+- Lists all issues in each iteration with their status
+
+**Report location:** `BURNDOWN.md` in the repository root
+
+**Key benefits:**
+- Historical tracking via git commits
+- Visual progress charts (text-based)
+- No external tools required
+- Easy to link from project board
+- Daily snapshots show trends over time
+
 ## Setup Requirements
 
 ### 0. Configure Personal Access Token (Required for Organization Projects)
@@ -146,6 +194,7 @@ Triggers on:
 - A new issue is **created** (`opened`)
 - An existing issue is **edited** (`edited`)
 - An issue is **reopened** (`reopened`)
+- An issue is **closed** (`closed`)
 - A milestone is **assigned** (`milestoned`)
 - A milestone is **removed** (`demilestoned`)
 - An issue is **assigned** to someone (`assigned`)
@@ -158,6 +207,9 @@ This workflow handles:
 - Setting project board fields
 - Inheriting milestones from parents
 - Cascading milestone changes to descendants
+- **Validating estimates** before moving to "In Progress" status
+- **Auto-closing parent issues** when all children are closed
+- **Auto-reopening parent issues** when a child is reopened
 
 #### Scheduled Rollup Workflow
 Location: `.github/workflows/scheduled-rollup.yml`
@@ -224,7 +276,38 @@ Or via GitHub UI: Actions → Cascade Iteration → Run workflow → Enter issue
 
 **Note:** GitHub Actions doesn't yet support direct triggers on project field changes (`projects_v2_item` event). These workflows can be triggered manually or will run automatically on issue edits as a workaround. For full automation, you would need to set up GitHub Apps with webhooks.
 
-No additional configuration is needed - all workflows use the default `GITHUB_TOKEN`.
+#### Burndown Report Workflow
+Location: `.github/workflows/generate-burndown.yml`
+
+Triggers on:
+- **Daily at midnight UTC**: Runs automatically to generate updated reports
+- **Manual dispatch**: Can be triggered manually for immediate report generation
+
+This workflow handles:
+- Querying all issues and their project fields
+- Grouping issues by iteration/sprint
+- Calculating metrics for each iteration:
+  - Total Estimate and Remaining work
+  - Completion percentage
+  - Daily velocity (work burned per day)
+  - Projected completion date
+- Generating markdown report with text-based charts
+- Committing `BURNDOWN.md` to repository
+- Providing historical tracking via git commits
+
+**Manual Trigger:**
+```bash
+gh workflow run generate-burndown.yml
+```
+
+Or via GitHub UI: Actions → Generate Burndown Report → Run workflow
+
+**View Reports:**
+- Latest report: `BURNDOWN.md` in repository root
+- Historical reports: View git history of `BURNDOWN.md`
+- Can link from project board or wiki
+
+No additional configuration is needed - all workflows use the PAT token configured in setup step 0.
 
 ## Usage
 
@@ -389,13 +472,16 @@ Add your custom parent keywords to the regex pattern.
 
 ## Files
 
-- `.github/workflows/issue-automation.yml` - Main automation workflow (type, milestone, cascading)
+- `.github/workflows/issue-automation.yml` - Main automation workflow (type, milestone, cascading, validation, auto-close/reopen)
 - `.github/workflows/rollup-estimates.yml` - Rollup automation (estimate, remaining work)
+- `.github/workflows/scheduled-rollup.yml` - Scheduled rollup (runs every 5 minutes)
 - `.github/workflows/cascade-iteration.yml` - Iteration cascade automation (sprint/iteration inheritance)
+- `.github/workflows/generate-burndown.yml` - Burndown report generation (daily at midnight)
 - `.github/ISSUE_TEMPLATE/epic.md` - Epic template
 - `.github/ISSUE_TEMPLATE/feature.md` - Feature template
 - `.github/ISSUE_TEMPLATE/user-story.md` - User Story template
 - `.github/ISSUE_TEMPLATE/task.md` - Task template
+- `BURNDOWN.md` - Auto-generated burndown report (updated daily)
 
 ## Benefits
 
@@ -408,6 +494,10 @@ Add your custom parent keywords to the regex pattern.
 - **Reliability**: Prevents orphaned issues with different milestones from their parents
 - **Zero Maintenance**: Set it up once and let automation handle synchronization forever
 - **Agile-Ready**: Perfect for sprint planning, burndown charts, and velocity tracking
+- **State Synchronization**: Parents automatically close when all children complete, preventing forgotten open issues
+- **Quality Control**: Validation ensures estimates are set before work begins
+- **Progress Tracking**: Daily burndown reports provide clear visibility into sprint progress and velocity
+- **Historical Analytics**: Git-tracked burndown reports enable trend analysis and retrospectives
 
 ## Example Workflow
 

@@ -1,0 +1,330 @@
+name: Generate Burndown Report
+
+on:
+  schedule:
+    # Run daily at midnight UTC
+    - cron: '*/5 * * * *' # Change to '0 0 * * *' to run daily at midnight UTC
+  workflow_dispatch:  # Allow manual triggering
+
+jobs:
+  generate-burndown:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: read
+      contents: write
+      repository-projects: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate Burndown Report
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PAT_WITH_PROJECT_ACCESS || secrets.GITHUB_TOKEN }}
+          script: |
+            console.log('📊 Burndown report generation started');
+            console.log('=====================================');
+
+            const fs = require('fs');
+
+            // Function to get all issues and their project fields
+            async function getProjectData() {
+              const projectQuery = `
+                query($owner: String!) {
+                  organization(login: $owner) {
+                    projectsV2(first: 10) {
+                      nodes {
+                        id
+                        title
+                        items(first: 100) {
+                          nodes {
+                            id
+                            content {
+                              ... on Issue {
+                                id
+                                number
+                                title
+                                state
+                                createdAt
+                                closedAt
+                              }
+                            }
+                            fieldValues(first: 20) {
+                              nodes {
+                                ... on ProjectV2ItemFieldNumberValue {
+                                  number
+                                  field {
+                                    ... on ProjectV2Field {
+                                      id
+                                      name
+                                    }
+                                  }
+                                }
+                                ... on ProjectV2ItemFieldIterationValue {
+                                  title
+                                  startDate
+                                  duration
+                                  iterationId
+                                  field {
+                                    ... on ProjectV2IterationField {
+                                      id
+                                      name
+                                    }
+                                  }
+                                }
+                                ... on ProjectV2ItemFieldSingleSelectValue {
+                                  name
+                                  field {
+                                    ... on ProjectV2SingleSelectField {
+                                      id
+                                      name
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                        fields(first: 20) {
+                          nodes {
+                            ... on ProjectV2IterationField {
+                              id
+                              name
+                              configuration {
+                                iterations {
+                                  id
+                                  title
+                                  startDate
+                                  duration
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              `;
+
+              const projectResult = await github.graphql(projectQuery, {
+                owner: context.repo.owner
+              });
+
+              const projects = projectResult.organization.projectsV2.nodes;
+              const project = projects.find(p => p.title === '[TEMPLATE] EngageMe');
+
+              if (!project) {
+                throw new Error('[TEMPLATE] EngageMe project not found');
+              }
+
+              return project;
+            }
+
+            // Get project data
+            const project = await getProjectData();
+            console.log(`Found project: ${project.title}`);
+
+            // Get all iterations
+            const iterationField = project.fields.nodes.find(f => f.name === 'Iteration');
+            if (!iterationField || !iterationField.configuration || !iterationField.configuration.iterations) {
+              console.log('⚠️  No iteration field found in project');
+              return;
+            }
+
+            const iterations = iterationField.configuration.iterations;
+            console.log(`Found ${iterations.length} iteration(s)`);
+
+            // Process each iteration
+            const iterationStats = [];
+
+            for (const iteration of iterations) {
+              console.log(`\n📅 Processing iteration: ${iteration.title}`);
+
+              // Find all issues in this iteration
+              const issuesInIteration = project.items.nodes.filter(item => {
+                if (!item.content) return false;
+
+                const iterationValue = item.fieldValues.nodes.find(fv =>
+                  fv.field && fv.field.name === 'Iteration' && fv.iterationId === iteration.id
+                );
+
+                return iterationValue !== undefined;
+              });
+
+              console.log(`  Found ${issuesInIteration.length} issue(s) in iteration`);
+
+              // Calculate stats
+              let totalEstimate = 0;
+              let totalRemaining = 0;
+              let completedCount = 0;
+              let totalCount = issuesInIteration.length;
+
+              const issueDetails = [];
+
+              for (const item of issuesInIteration) {
+                const issue = item.content;
+
+                // Extract Estimate and Remaining
+                let estimate = 0;
+                let remaining = 0;
+                let type = 'Unknown';
+
+                item.fieldValues.nodes.forEach(fv => {
+                  if (fv.field) {
+                    if (fv.field.name === 'Estimate' && fv.number !== undefined) {
+                      estimate = fv.number;
+                    }
+                    if (fv.field.name === 'Remaining' && fv.number !== undefined) {
+                      remaining = fv.number;
+                    }
+                    if (fv.field.name === 'Type' && fv.name) {
+                      type = fv.name;
+                    }
+                  }
+                });
+
+                totalEstimate += estimate;
+                totalRemaining += remaining;
+
+                if (issue.state === 'closed') {
+                  completedCount++;
+                }
+
+                issueDetails.push({
+                  number: issue.number,
+                  title: issue.title,
+                  state: issue.state,
+                  type: type,
+                  estimate: estimate,
+                  remaining: remaining,
+                  completed: estimate - remaining
+                });
+              }
+
+              const totalCompleted = totalEstimate - totalRemaining;
+              const completionPercent = totalEstimate > 0 ? Math.round((totalCompleted / totalEstimate) * 100) : 0;
+
+              // Calculate iteration dates
+              const startDate = new Date(iteration.startDate);
+              const endDate = new Date(startDate);
+              endDate.setDate(endDate.getDate() + iteration.duration);
+
+              const today = new Date();
+              const daysElapsed = Math.max(0, Math.ceil((today - startDate) / (1000 * 60 * 60 * 24)));
+              const daysRemaining = Math.max(0, Math.ceil((endDate - today) / (1000 * 60 * 60 * 24)));
+              const totalDays = iteration.duration;
+
+              // Calculate velocity (work per day)
+              const velocity = daysElapsed > 0 ? (totalCompleted / daysElapsed).toFixed(1) : 0;
+              const projectedCompletion = velocity > 0 ? Math.ceil(totalRemaining / velocity) : 0;
+
+              iterationStats.push({
+                title: iteration.title,
+                startDate: startDate.toISOString().split('T')[0],
+                endDate: endDate.toISOString().split('T')[0],
+                daysElapsed: daysElapsed,
+                daysRemaining: daysRemaining,
+                totalDays: totalDays,
+                totalEstimate: totalEstimate,
+                totalRemaining: totalRemaining,
+                totalCompleted: totalCompleted,
+                completionPercent: completionPercent,
+                velocity: velocity,
+                projectedCompletion: projectedCompletion,
+                completedCount: completedCount,
+                totalCount: totalCount,
+                issueDetails: issueDetails
+              });
+
+              console.log(`  Total Estimate: ${totalEstimate}, Remaining: ${totalRemaining}, Completed: ${totalCompleted} (${completionPercent}%)`);
+              console.log(`  Velocity: ${velocity} per day, Projected completion in ${projectedCompletion} days`);
+            }
+
+            // Generate markdown report
+            const now = new Date();
+            const dateStr = now.toISOString().split('T')[0];
+            const timeStr = now.toISOString().split('T')[1].split('.')[0];
+
+            let markdown = `# Burndown Report\n\n`;
+            markdown += `**Generated:** ${dateStr} at ${timeStr} UTC\n\n`;
+            markdown += `**Project:** [TEMPLATE] EngageMe\n\n`;
+            markdown += `---\n\n`;
+
+            if (iterationStats.length === 0) {
+              markdown += `*No iterations found or no issues assigned to iterations.*\n`;
+            } else {
+              for (const stats of iterationStats) {
+                markdown += `## ${stats.title}\n\n`;
+                markdown += `**Duration:** ${stats.startDate} to ${stats.endDate} (${stats.totalDays} days)\n\n`;
+                markdown += `**Progress:** Day ${stats.daysElapsed} of ${stats.totalDays} (${stats.daysRemaining} days remaining)\n\n`;
+
+                markdown += `### Summary\n\n`;
+                markdown += `| Metric | Value |\n`;
+                markdown += `|--------|-------|\n`;
+                markdown += `| **Total Estimate** | ${stats.totalEstimate} hours |\n`;
+                markdown += `| **Total Remaining** | ${stats.totalRemaining} hours |\n`;
+                markdown += `| **Total Completed** | ${stats.totalCompleted} hours |\n`;
+                markdown += `| **Completion %** | ${stats.completionPercent}% |\n`;
+                markdown += `| **Velocity** | ${stats.velocity} hours/day |\n`;
+                markdown += `| **Issues Closed** | ${stats.completedCount} / ${stats.totalCount} |\n`;
+
+                if (stats.projectedCompletion > 0) {
+                  const onTrack = stats.projectedCompletion <= stats.daysRemaining;
+                  const status = onTrack ? '✅ On Track' : '⚠️ At Risk';
+                  markdown += `| **Projected Completion** | ${stats.projectedCompletion} days (${status}) |\n`;
+                }
+
+                markdown += `\n`;
+
+                // Burndown chart (text-based)
+                markdown += `### Burndown Chart\n\n`;
+                markdown += `\`\`\`\n`;
+                markdown += `Remaining Work: ${stats.totalRemaining}h\n`;
+                markdown += `Completed Work: ${stats.totalCompleted}h\n\n`;
+
+                const barLength = 50;
+                const completedBars = Math.round((stats.totalCompleted / stats.totalEstimate) * barLength);
+                const remainingBars = barLength - completedBars;
+
+                markdown += `[${'█'.repeat(completedBars)}${'░'.repeat(remainingBars)}] ${stats.completionPercent}%\n`;
+                markdown += `\`\`\`\n\n`;
+
+                // Issue breakdown
+                markdown += `### Issues\n\n`;
+                markdown += `| # | Title | Type | State | Estimate | Remaining | Completed |\n`;
+                markdown += `|---|-------|------|-------|----------|-----------|----------|\n`;
+
+                for (const issue of stats.issueDetails) {
+                  const stateIcon = issue.state === 'closed' ? '✅' : '🔵';
+                  markdown += `| ${stateIcon} #${issue.number} | ${issue.title} | ${issue.type} | ${issue.state} | ${issue.estimate}h | ${issue.remaining}h | ${issue.completed}h |\n`;
+                }
+
+                markdown += `\n`;
+                markdown += `---\n\n`;
+              }
+            }
+
+            markdown += `\n*This report is automatically generated daily by GitHub Actions.*\n`;
+
+            // Write to file
+            fs.writeFileSync('BURNDOWN.md', markdown);
+            console.log('\n✅ Burndown report written to BURNDOWN.md');
+
+            // Show preview
+            console.log('\n📄 Report preview (first 500 chars):');
+            console.log(markdown.substring(0, 500) + '...');
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add BURNDOWN.md
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update burndown report - $(date -u +%Y-%m-%d)"
+            git push
+            echo "✅ Burndown report committed and pushed"
+          fi

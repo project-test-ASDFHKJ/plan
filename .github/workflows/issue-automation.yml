@@ -2,7 +2,7 @@ name: Issue Automation
 
 on:
   issues:
-    types: [opened, edited, reopened, milestoned, demilestoned, assigned, unassigned, labeled, unlabeled]
+    types: [opened, edited, reopened, closed, milestoned, demilestoned, assigned, unassigned, labeled, unlabeled]
 
 jobs:
   automate-issue:
@@ -360,6 +360,145 @@ jobs:
               }
             }
 
+            // ========================================
+            // Validation: Estimate Required for In Progress
+            // ========================================
+
+            if (issueType === 'Task' || issueType === 'User Story') {
+              console.log(`\n🔍 Validating estimate for ${issueType}...`);
+
+              try {
+                // Get project fields including Status and Estimate
+                const issueData = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber
+                });
+                const issueNodeId = issueData.data.node_id;
+
+                // Query project for Status and Estimate fields
+                const projectQuery = `
+                  query($owner: String!) {
+                    organization(login: $owner) {
+                      projectsV2(first: 10) {
+                        nodes {
+                          id
+                          title
+                          items(first: 100) {
+                            nodes {
+                              id
+                              content {
+                                ... on Issue {
+                                  id
+                                  number
+                                }
+                              }
+                              fieldValues(first: 20) {
+                                nodes {
+                                  ... on ProjectV2ItemFieldNumberValue {
+                                    number
+                                    field {
+                                      ... on ProjectV2Field {
+                                        id
+                                        name
+                                      }
+                                    }
+                                  }
+                                  ... on ProjectV2ItemFieldSingleSelectValue {
+                                    name
+                                    field {
+                                      ... on ProjectV2SingleSelectField {
+                                        id
+                                        name
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                `;
+
+                const projectResult = await github.graphql(projectQuery, {
+                  owner: context.repo.owner
+                });
+
+                const projects = projectResult.organization.projectsV2.nodes;
+                const project = projects.find(p => p.title === '[TEMPLATE] EngageMe');
+
+                if (project) {
+                  const item = project.items.nodes.find(i => i.content && i.content.number === issueNumber);
+
+                  if (item) {
+                    // Extract Status and Estimate values
+                    let statusValue = null;
+                    let estimateValue = 0;
+
+                    item.fieldValues.nodes.forEach(fv => {
+                      if (fv.field) {
+                        if (fv.field.name === 'Status' && fv.name) {
+                          statusValue = fv.name;
+                        }
+                        if (fv.field.name === 'Estimate' && fv.number !== undefined) {
+                          estimateValue = fv.number;
+                        }
+                      }
+                    });
+
+                    console.log(`📊 Status: "${statusValue}", Estimate: ${estimateValue}`);
+
+                    // Validation: If Status is "In Progress" and Estimate is 0, add warning
+                    if (statusValue === 'In Progress' && estimateValue === 0) {
+                      console.log('⚠️  Validation failed: In Progress without estimate');
+
+                      // Add label
+                      await github.rest.issues.addLabels({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: issueNumber,
+                        labels: ['needs-estimate']
+                      });
+
+                      // Post warning comment
+                      await github.rest.issues.createComment({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: issueNumber,
+                        body: `### ⚠️ Validation Warning\n\nThis issue is marked as **In Progress** but has **no Estimate** set.\n\n**Action required:** Please add an estimate (in hours or story points) to the project board before continuing work.\n\n*Label \`needs-estimate\` has been added. Remove it after setting the estimate.*`
+                      });
+
+                      console.log('✅ Added needs-estimate label and warning comment');
+                    } else if (statusValue === 'In Progress' && estimateValue > 0) {
+                      // Remove label if estimate is now set
+                      try {
+                        await github.rest.issues.removeLabel({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: issueNumber,
+                          name: 'needs-estimate'
+                        });
+                        console.log('✅ Removed needs-estimate label (estimate now set)');
+                      } catch (error) {
+                        // Label might not exist, ignore error
+                      }
+                    } else {
+                      console.log('✅ Validation passed');
+                    }
+                  } else {
+                    console.log('ℹ️  Issue not found in project, skipping validation');
+                  }
+                } else {
+                  console.log('ℹ️  [TEMPLATE] EngageMe project not found, skipping validation');
+                }
+              } catch (error) {
+                console.error('Error during validation:', error.message);
+              }
+            }
+
             // Cascade milestone updates to all descendants
             const currentMilestone = context.payload.issue.milestone;
             const actionType = context.payload.action;
@@ -399,4 +538,124 @@ jobs:
                 issue_number: issueNumber,
                 body: commentBody
               });
+            }
+
+            // ========================================
+            // Auto-Close/Reopen Parent Issues
+            // ========================================
+
+            const actionType = context.payload.action;
+
+            if (actionType === 'closed' || actionType === 'reopened') {
+              console.log(`\n🔄 Issue #${issueNumber} was ${actionType}, syncing parent state...`);
+
+              // Function to sync parent state based on all children
+              async function syncParentState(childIssueNumber, depth = 0) {
+                const indent = '  '.repeat(depth);
+
+                // Get the child issue to find its parent
+                const childIssue = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: childIssueNumber
+                });
+
+                const childBody = childIssue.data.body || '';
+                const bodyWithoutComments = childBody.replace(/<!--[\s\S]*?-->/g, '');
+                const parentMatch = bodyWithoutComments.match(/(?:Epic|Feature|Parent Feature|Parent Epic):\s*#(\d+)/i);
+
+                if (!parentMatch) {
+                  console.log(`${indent}ℹ️  Issue #${childIssueNumber} has no parent reference`);
+                  return;
+                }
+
+                const parentNumber = parseInt(parentMatch[1]);
+                console.log(`${indent}📋 Found parent: #${parentNumber}`);
+
+                // Get parent issue
+                let parentIssue;
+                try {
+                  parentIssue = await github.rest.issues.get({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: parentNumber
+                  });
+                } catch (error) {
+                  console.log(`${indent}⚠️  Parent issue #${parentNumber} not found: ${error.message}`);
+                  return;
+                }
+
+                // Find all children of this parent
+                const allChildren = await findChildIssues(parentNumber);
+
+                if (allChildren.length === 0) {
+                  console.log(`${indent}ℹ️  Parent #${parentNumber} has no children (relationship may be inconsistent)`);
+                  return;
+                }
+
+                // Check if all children are closed
+                const allClosed = allChildren.every(child => child.state === 'closed');
+                const anyClosed = allChildren.some(child => child.state === 'closed');
+                const anyOpen = allChildren.some(child => child.state === 'open');
+
+                console.log(`${indent}📊 Parent #${parentNumber} status: ${allChildren.length} children, ${allChildren.filter(c => c.state === 'closed').length} closed, ${allChildren.filter(c => c.state === 'open').length} open`);
+
+                const parentState = parentIssue.data.state;
+                let actionTaken = false;
+
+                // If all children closed and parent is open → close parent
+                if (allClosed && parentState === 'open') {
+                  console.log(`${indent}✅ All children closed, closing parent #${parentNumber}`);
+
+                  await github.rest.issues.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: parentNumber,
+                    state: 'closed',
+                    state_reason: 'completed'
+                  });
+
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: parentNumber,
+                    body: `### 🔒 Auto-Closed\n\nAll ${allChildren.length} child issue(s) have been completed:\n${allChildren.map(c => `- #${c.number} (${c.title})`).join('\n')}\n\n*Automatically closed by workflow*`
+                  });
+
+                  actionTaken = true;
+                }
+
+                // If any child open and parent is closed → reopen parent
+                if (anyOpen && parentState === 'closed') {
+                  console.log(`${indent}🔓 Child reopened, reopening parent #${parentNumber}`);
+
+                  await github.rest.issues.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: parentNumber,
+                    state: 'open'
+                  });
+
+                  const openChildren = allChildren.filter(c => c.state === 'open');
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: parentNumber,
+                    body: `### 🔓 Auto-Reopened\n\n${openChildren.length} child issue(s) are still open:\n${openChildren.map(c => `- #${c.number} (${c.title})`).join('\n')}\n\n*Automatically reopened by workflow*`
+                  });
+
+                  actionTaken = true;
+                }
+
+                if (!actionTaken) {
+                  console.log(`${indent}⏭️  Parent #${parentNumber} already in correct state (${parentState})`);
+                }
+
+                // Recursively sync grandparent
+                await syncParentState(parentNumber, depth + 1);
+              }
+
+              // Start the sync chain from this issue
+              await syncParentState(issueNumber);
+              console.log('✅ Parent state sync complete!');
             }
