@@ -27,7 +27,7 @@ jobs:
       - name: Rollup Estimates to Parent Issues
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.PAT_WITH_PROJECT_ACCESS || secrets.GITHUB_TOKEN }}
           script: |
             console.log('🔄 Rollup workflow triggered');
             console.log('=====================================');

@@ -27,7 +27,7 @@ jobs:
       - name: Auto-set Type and Inherit Milestone
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.PAT_WITH_PROJECT_ACCESS || secrets.GITHUB_TOKEN }}
           script: |
             const issueNumber = context.issue.number;
             const issueBody = context.payload.issue.body || '';
