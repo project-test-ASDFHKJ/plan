@@ -11,7 +11,6 @@ jobs:
       issues: write
       contents: read
       repository-projects: write
-      actions: write  # Needed to trigger rollup workflow
 
     steps:
       - name: Checkout repository
@@ -400,23 +399,4 @@ jobs:
                 issue_number: issueNumber,
                 body: commentBody
               });
-            }
-
-            // Automatically trigger rollup if this issue has a parent
-            if (parentIssueNumber && context.payload.action === 'edited') {
-              console.log(`\n🔄 Triggering automatic rollup for parent #${parentIssueNumber}...`);
-              try {
-                await github.rest.actions.createWorkflowDispatch({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  workflow_id: 'rollup-estimates.yml',
-                  ref: 'main',
-                  inputs: {
-                    issue_number: issueNumber.toString()
-                  }
-                });
-                console.log(`✅ Rollup workflow triggered for issue #${issueNumber}`);
-              } catch (error) {
-                console.log(`⚠️  Could not trigger rollup: ${error.message}`);
-              }
             }
