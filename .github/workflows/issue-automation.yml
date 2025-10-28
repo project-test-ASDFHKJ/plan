@@ -365,7 +365,11 @@ jobs:
             // ========================================
 
             if (parentIssueNumber) {
-              console.log(`\n📅 Checking for parent iteration...`);
+              // Wait for GraphQL propagation (issue needs time to appear in project queries)
+              console.log(`\n📅 Waiting for project data to propagate...`);
+              await new Promise(resolve => setTimeout(resolve, 3000));
+
+              console.log(`📅 Checking for parent iteration...`);
 
               try {
                 // Function to get iteration for an issue
