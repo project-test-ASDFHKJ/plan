@@ -44,6 +44,30 @@ Parent issues automatically calculate their **Estimate** and **Remaining** work 
 
 ## Setup Requirements
 
+### 0. Configure Personal Access Token (Required for Organization Projects)
+
+**If your project is at the organization level** (like `[TEMPLATE] EngageMe`), you **must** create a Personal Access Token because GitHub's default `GITHUB_TOKEN` cannot access organization-level projects.
+
+1. **Generate a Personal Access Token:**
+   - Go to: https://github.com/settings/tokens
+   - Click **"Generate new token (classic)"**
+   - Name it: `GitHub Actions - Project Access`
+   - Select these scopes:
+     - ✅ `project` - Full access to projects
+     - ✅ `read:org` - Read organization data
+     - ✅ `repo` - Full control of repositories
+   - Click **"Generate token"**
+   - **Copy the token immediately** (you won't see it again!)
+
+2. **Add the token as a repository secret:**
+   - Go to: `https://github.com/YOUR-ORG/YOUR-REPO/settings/secrets/actions`
+   - Click **"New repository secret"**
+   - Name: `PAT_WITH_PROJECT_ACCESS`
+   - Value: *paste your copied token*
+   - Click **"Add secret"**
+
+**Without this PAT, the workflows cannot access your organization-level project and rollup will not work.**
+
 ### 1. Create GitHub Project (v2)
 
 1. Go to your repository → **Projects** tab
@@ -139,8 +163,8 @@ This workflow handles:
 Location: `.github/workflows/rollup-estimates.yml`
 
 Triggers on:
-- **Manual dispatch**: Run manually after updating Estimate/Remaining fields
-- **Issue events**: Automatically on issue edits (as a fallback)
+- **Automatically**: When you edit a child issue, the rollup triggers automatically
+- **Manual dispatch**: Run manually if needed
 
 This workflow handles:
 - Calculating sum of all children's estimates
@@ -148,13 +172,23 @@ This workflow handles:
 - Updating parent issue with rolled-up values
 - Recursively updating the entire ancestor chain
 
-**Manual Trigger:**
+**How Automatic Rollup Works:**
+1. Update Estimate/Remaining fields in the project board for a child issue
+2. Make a small edit to trigger the automation:
+   - Add a comment to the issue, OR
+   - Click the issue title in the project board and make any small edit
+3. The issue-automation workflow detects the edit and automatically triggers the rollup
+4. Parent estimates update automatically within seconds
+
+**Manual Trigger (optional):**
 ```bash
-# After updating a child issue's estimate/remaining, trigger rollup:
+# If needed, you can still trigger rollup manually:
 gh workflow run rollup-estimates.yml -f issue_number=123
 ```
 
 Or via GitHub UI: Actions → Rollup Estimates → Run workflow → Enter issue number
+
+**Note:** GitHub Actions doesn't directly detect project field changes. The small edit step triggers the automation.
 
 #### Cascade Iteration Workflow
 Location: `.github/workflows/cascade-iteration.yml`
