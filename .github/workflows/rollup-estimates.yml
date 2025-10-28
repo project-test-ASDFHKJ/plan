@@ -1,8 +1,14 @@
 name: Rollup Estimates and Remaining Work
 
 on:
-  projects_v2_item:
-    types: [edited]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to rollup estimates from (child issue that was updated)'
+        required: true
+        type: number
+  issues:
+    types: [edited, labeled]
 
 jobs:
   rollup-to-parents:
@@ -22,71 +28,31 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             console.log('🔄 Rollup workflow triggered');
-            console.log('Event:', JSON.stringify(context.payload, null, 2));
 
-            // Get the project item that was edited
-            const projectItem = context.payload.projects_v2_item;
-            const changes = context.payload.changes;
-
-            if (!projectItem) {
-              console.log('No project item found in payload');
+            // Determine issue number based on trigger type
+            let issueNumber;
+            if (context.eventName === 'workflow_dispatch') {
+              // Manual trigger
+              issueNumber = parseInt(context.payload.inputs.issue_number);
+              console.log(`Manual trigger for issue #${issueNumber}`);
+            } else if (context.eventName === 'issues') {
+              // Issue event trigger
+              issueNumber = context.issue.number;
+              console.log(`Issue event trigger for issue #${issueNumber}`);
+            } else {
+              console.log('Unknown trigger type');
               return;
             }
 
-            // Check if estimate or remaining fields were changed
-            const estimateChanged = changes && (
-              changes.field_value?.field_name === 'Estimate' ||
-              changes.field_value?.field_name === 'Remaining'
-            );
+            // Get issue details
+            const issue = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
 
-            if (!estimateChanged) {
-              console.log('Estimate or Remaining fields were not changed, skipping rollup');
-              return;
-            }
-
-            console.log(`Field changed: ${changes.field_value.field_name}`);
-
-            // Get the issue from the content node
-            const contentNodeId = projectItem.content_node_id;
-
-            // Query to get issue details from node ID
-            const issueQuery = `
-              query($nodeId: ID!) {
-                node(id: $nodeId) {
-                  ... on Issue {
-                    number
-                    title
-                    body
-                    repository {
-                      owner {
-                        login
-                      }
-                      name
-                    }
-                  }
-                }
-              }
-            `;
-
-            let issueData;
-            try {
-              const result = await github.graphql(issueQuery, {
-                nodeId: contentNodeId
-              });
-              issueData = result.node;
-            } catch (error) {
-              console.error('Error fetching issue:', error.message);
-              return;
-            }
-
-            if (!issueData) {
-              console.log('Could not resolve content to an issue');
-              return;
-            }
-
-            const issueNumber = issueData.number;
-            const issueBody = issueData.body || '';
-            console.log(`Processing issue #${issueNumber}: ${issueData.title}`);
+            const issueBody = issue.data.body || '';
+            console.log(`Processing issue #${issueNumber}: ${issue.data.title}`);
 
             // Extract parent issue reference
             const parentMatch = issueBody.match(/(?:Epic|Feature|Parent Feature|Parent Epic):\s*#(\d+)/i);

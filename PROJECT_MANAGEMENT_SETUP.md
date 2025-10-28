@@ -139,7 +139,8 @@ This workflow handles:
 Location: `.github/workflows/rollup-estimates.yml`
 
 Triggers on:
-- A project item's **Estimate** or **Remaining** field is updated (`projects_v2_item.edited`)
+- **Manual dispatch**: Run manually after updating Estimate/Remaining fields
+- **Issue events**: Automatically on issue edits (as a fallback)
 
 This workflow handles:
 - Calculating sum of all children's estimates
@@ -147,17 +148,36 @@ This workflow handles:
 - Updating parent issue with rolled-up values
 - Recursively updating the entire ancestor chain
 
+**Manual Trigger:**
+```bash
+# After updating a child issue's estimate/remaining, trigger rollup:
+gh workflow run rollup-estimates.yml -f issue_number=123
+```
+
+Or via GitHub UI: Actions → Rollup Estimates → Run workflow → Enter issue number
+
 #### Cascade Iteration Workflow
 Location: `.github/workflows/cascade-iteration.yml`
 
 Triggers on:
-- A project item's **Iteration** field is updated (`projects_v2_item.edited`)
+- **Manual dispatch**: Run manually after changing an iteration
+- **Issue events**: Automatically on issue edits (as a fallback)
 
 This workflow handles:
 - Detecting iteration changes on parent issues
 - Finding all child and descendant issues
 - Updating iteration field on all descendants
 - Recursively cascading through the entire hierarchy
+
+**Manual Trigger:**
+```bash
+# After setting an epic/feature's iteration, cascade to children:
+gh workflow run cascade-iteration.yml -f issue_number=100
+```
+
+Or via GitHub UI: Actions → Cascade Iteration → Run workflow → Enter issue number
+
+**Note:** GitHub Actions doesn't yet support direct triggers on project field changes (`projects_v2_item` event). These workflows can be triggered manually or will run automatically on issue edits as a workaround. For full automation, you would need to set up GitHub Apps with webhooks.
 
 No additional configuration is needed - all workflows use the default `GITHUB_TOKEN`.
 
@@ -363,11 +383,11 @@ Add your custom parent keywords to the regex pattern.
 
 All issues are automatically organized in your project board with proper types and milestones!
 
-### Cascading Updates Example
+### Cascading Milestone Updates Example
 Now, imagine you need to move the entire Epic to a different milestone:
 
 1. **Update Epic #100** milestone from "v1.0" to "v2.0"
-2. **Automation triggers** and finds all descendants:
+2. **Automation triggers automatically** and finds all descendants:
    - Feature #101 (direct child)
    - Story #102 (grandchild via Feature #101)
    - Task #103 (grandchild via Feature #101)
@@ -381,3 +401,31 @@ Now, imagine you need to move the entire Epic to a different milestone:
    ```
 
 This saves you from manually updating each issue individually - the entire hierarchy stays synchronized!
+
+### Iteration Assignment Example
+
+1. **Set Epic #100** to iteration "Sprint 3" in your project board
+2. **Trigger the cascade workflow**:
+   ```bash
+   gh workflow run cascade-iteration.yml -f issue_number=100
+   ```
+   Or go to GitHub UI: Actions → Cascade Iteration to Children → Run workflow → Enter `100`
+3. **All descendants automatically updated** to "Sprint 3":
+   - Feature #101, #102
+   - Story #103, #104
+   - Task #105, #106
+4. **Comment posted** on Epic #100 showing all updated issues
+
+### Estimate Rollup Example
+
+1. **Update Task #103** in your project: Estimate=5, Remaining=2
+2. **Trigger the rollup workflow**:
+   ```bash
+   gh workflow run rollup-estimates.yml -f issue_number=103
+   ```
+   Or via GitHub UI: Actions → Rollup Estimates → Run workflow → Enter `103`
+3. **Parent Feature #101** automatically calculates:
+   - Sums all child estimates
+   - Sums all child remaining work
+4. **Grandparent Epic #100** also updates recursively
+5. **Comments posted** on each parent showing the breakdown

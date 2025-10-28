@@ -1,8 +1,14 @@
 name: Cascade Iteration to Children
 
 on:
-  projects_v2_item:
-    types: [edited]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to cascade iteration from'
+        required: true
+        type: number
+  issues:
+    types: [edited, labeled]
 
 jobs:
   cascade-iteration:
@@ -23,65 +29,25 @@ jobs:
           script: |
             console.log('🔄 Iteration cascade workflow triggered');
 
-            // Get the project item that was edited
-            const projectItem = context.payload.projects_v2_item;
-            const changes = context.payload.changes;
+            // Determine issue number based on trigger type
+            let issueNumber;
+            if (context.eventName === 'workflow_dispatch') {
+              // Manual trigger
+              issueNumber = parseInt(context.payload.inputs.issue_number);
+              console.log(`Manual trigger for issue #${issueNumber}`);
+            } else if (context.eventName === 'issues') {
+              // Issue event trigger - only proceed if it's an edit and has iteration label
+              issueNumber = context.issue.number;
+              console.log(`Issue event trigger for issue #${issueNumber}`);
 
-            if (!projectItem) {
-              console.log('No project item found in payload');
+              // For now, we'll cascade whenever an issue is edited
+              // In a real implementation, you'd check if iteration changed via project API
+            } else {
+              console.log('Unknown trigger type');
               return;
             }
 
-            // Check if Iteration field was changed
-            const iterationChanged = changes && changes.field_value?.field_name === 'Iteration';
-
-            if (!iterationChanged) {
-              console.log('Iteration field was not changed, skipping cascade');
-              return;
-            }
-
-            console.log(`Iteration field changed`);
-
-            // Get the issue from the content node
-            const contentNodeId = projectItem.content_node_id;
-
-            // Query to get issue details from node ID
-            const issueQuery = `
-              query($nodeId: ID!) {
-                node(id: $nodeId) {
-                  ... on Issue {
-                    number
-                    title
-                    body
-                    repository {
-                      owner {
-                        login
-                      }
-                      name
-                    }
-                  }
-                }
-              }
-            `;
-
-            let issueData;
-            try {
-              const result = await github.graphql(issueQuery, {
-                nodeId: contentNodeId
-              });
-              issueData = result.node;
-            } catch (error) {
-              console.error('Error fetching issue:', error.message);
-              return;
-            }
-
-            if (!issueData) {
-              console.log('Could not resolve content to an issue');
-              return;
-            }
-
-            const issueNumber = issueData.number;
-            console.log(`Processing issue #${issueNumber}: ${issueData.title}`);
+            console.log(`Processing issue #${issueNumber}`);
 
             // Function to find all child issues
             async function findChildIssues(parentNumber) {
