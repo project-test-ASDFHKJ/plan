@@ -7,11 +7,11 @@
     "dailyData": [
       {
         "date": "2025-10-28",
-        "remaining": 2,
-        "completed": 166,
-        "totalEstimate": 168,
+        "remaining": 4,
+        "completed": 332,
+        "totalEstimate": 336,
         "completedCount": 0,
-        "totalCount": 2
+        "totalCount": 3
       }
     ]
   },
