@@ -217,6 +217,10 @@ jobs:
                                   name
                                 }
                               }
+                              ... on ProjectV2IterationField {
+                                id
+                                name
+                              }
                             }
                           }
                         }
