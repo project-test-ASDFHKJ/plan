@@ -74,25 +74,25 @@ Tasks and User Stories are validated before moving to "In Progress" status:
 - Encourages estimation discipline
 
 ### 6. Burndown Report Generation
-Automated daily burndown reports track progress across all iterations with visual charts:
-- Generates actual burndown **chart images** (similar to Azure DevOps)
+Automated daily burndown reports track progress with visual chart:
+- Generates a burndown **chart image** (similar to Azure DevOps)
 - Shows "Remaining Work" as a blue filled area
 - Shows "Ideal Trend" as a gray line for comparison
 - Tracks total estimate, remaining work, and completion percentage
 - Calculates daily velocity (work completed per day)
 - Projects completion date based on current velocity
 - Lists all issues in each iteration with their status
+- Automatically focuses on the active iteration (highest remaining work)
 
 **Report location:** `BURNDOWN.md` in the repository root
-**Chart images:** `burndown-charts/burndown-*.png`
-**Historical data:** `burndown-charts/burndown-history.json`
+**Chart image:** `burndown-chart.png` (single file, updated daily)
 
 **Key benefits:**
-- **Visual burndown charts** like professional project management tools
-- Historical tracking via git commits (view chart evolution over time)
+- **Visual burndown chart** like professional project management tools
+- Simple single-file approach (no history clutter)
+- Chart gets overwritten daily with current snapshot
 - No external tools or services required
-- Easy to link from project board
-- Daily snapshots show trends and patterns
+- Easy to link from project board or README
 - On-track/At-risk status automatically calculated
 
 ## Setup Requirements
@@ -296,13 +296,13 @@ This workflow handles:
   - Completion percentage
   - Daily velocity (work burned per day)
   - Projected completion date
-- **Generating visual burndown chart images** (PNG format)
+- **Generating visual burndown chart image** (PNG format)
   - Blue filled area showing "Remaining Work"
   - Gray line showing "Ideal Trend"
   - Professional styling similar to Azure DevOps
-- Storing historical daily data for trend analysis
-- Committing `BURNDOWN.md`, chart images, and history to repository
-- Providing historical tracking via git commits
+  - Single file that gets updated daily
+- Automatically focuses on active iteration (highest remaining work)
+- Committing `BURNDOWN.md` and chart image to repository
 
 **Manual Trigger:**
 ```bash
@@ -313,9 +313,8 @@ Or via GitHub UI: Actions → Generate Burndown Report → Run workflow
 
 **View Reports:**
 - Latest report: `BURNDOWN.md` in repository root
-- Chart images: `burndown-charts/burndown-*.png`
-- Historical reports: View git history of `BURNDOWN.md` and chart images
-- Historical data: `burndown-charts/burndown-history.json` (tracks daily progress)
+- Chart image: `burndown-chart.png` (updated daily)
+- Historical view: View git history to see how the chart evolved
 - Can link from project board, wiki, or README
 
 No additional configuration is needed - all workflows use the PAT token configured in setup step 0.
@@ -493,8 +492,7 @@ Add your custom parent keywords to the regex pattern.
 - `.github/ISSUE_TEMPLATE/user-story.md` - User Story template
 - `.github/ISSUE_TEMPLATE/task.md` - Task template
 - `BURNDOWN.md` - Auto-generated burndown report (updated daily)
-- `burndown-charts/burndown-*.png` - Auto-generated burndown chart images
-- `burndown-charts/burndown-history.json` - Historical burndown data for trending
+- `burndown-chart.png` - Auto-generated burndown chart image (updated daily)
 
 ## Benefits
 
@@ -509,8 +507,8 @@ Add your custom parent keywords to the regex pattern.
 - **Agile-Ready**: Perfect for sprint planning, burndown charts, and velocity tracking
 - **State Synchronization**: Parents automatically close when all children complete, preventing forgotten open issues
 - **Quality Control**: Validation ensures estimates are set before work begins
-- **Progress Tracking**: Daily burndown reports provide clear visibility into sprint progress and velocity
-- **Historical Analytics**: Git-tracked burndown reports enable trend analysis and retrospectives
+- **Progress Tracking**: Daily burndown chart provides clear visibility into sprint progress and velocity
+- **Simple Maintenance**: Single chart file that updates daily - no historical file clutter
 
 ## Example Workflow
 

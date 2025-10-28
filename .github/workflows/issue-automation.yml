@@ -544,8 +544,6 @@ jobs:
             // Auto-Close/Reopen Parent Issues
             // ========================================
 
-            const actionType = context.payload.action;
-
             if (actionType === 'closed' || actionType === 'reopened') {
               console.log(`\n🔄 Issue #${issueNumber} was ${actionType}, syncing parent state...`);
 
