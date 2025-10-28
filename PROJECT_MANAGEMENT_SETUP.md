@@ -84,8 +84,8 @@ Automated daily burndown reports track progress across all iterations with visua
 - Lists all issues in each iteration with their status
 
 **Report location:** `BURNDOWN.md` in the repository root
-**Chart images:** `.github/workflows/burndown-*.png`
-**Historical data:** `.github/workflows/burndown-history.json`
+**Chart images:** `burndown-charts/burndown-*.png`
+**Historical data:** `burndown-charts/burndown-history.json`
 
 **Key benefits:**
 - **Visual burndown charts** like professional project management tools
@@ -313,9 +313,9 @@ Or via GitHub UI: Actions → Generate Burndown Report → Run workflow
 
 **View Reports:**
 - Latest report: `BURNDOWN.md` in repository root
-- Chart images: `.github/workflows/burndown-*.png`
+- Chart images: `burndown-charts/burndown-*.png`
 - Historical reports: View git history of `BURNDOWN.md` and chart images
-- Historical data: `.github/workflows/burndown-history.json` (tracks daily progress)
+- Historical data: `burndown-charts/burndown-history.json` (tracks daily progress)
 - Can link from project board, wiki, or README
 
 No additional configuration is needed - all workflows use the PAT token configured in setup step 0.
@@ -493,8 +493,8 @@ Add your custom parent keywords to the regex pattern.
 - `.github/ISSUE_TEMPLATE/user-story.md` - User Story template
 - `.github/ISSUE_TEMPLATE/task.md` - Task template
 - `BURNDOWN.md` - Auto-generated burndown report (updated daily)
-- `.github/workflows/burndown-*.png` - Auto-generated burndown chart images
-- `.github/workflows/burndown-history.json` - Historical burndown data for trending
+- `burndown-charts/burndown-*.png` - Auto-generated burndown chart images
+- `burndown-charts/burndown-history.json` - Historical burndown data for trending
 
 ## Benefits
 

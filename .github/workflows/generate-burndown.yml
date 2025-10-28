@@ -253,8 +253,15 @@ jobs:
               console.log(`  Velocity: ${velocity} per day, Projected completion in ${projectedCompletion} days`);
             }
 
+            // Create burndown-charts directory if it doesn't exist
+            const chartsDir = 'burndown-charts';
+            if (!fs.existsSync(chartsDir)) {
+              fs.mkdirSync(chartsDir, { recursive: true });
+              console.log(`Created ${chartsDir} directory`);
+            }
+
             // Load or create historical burndown data
-            const historyFile = '.github/workflows/burndown-history.json';
+            const historyFile = 'burndown-charts/burndown-history.json';
             let burndownHistory = {};
 
             if (fs.existsSync(historyFile)) {
@@ -458,7 +465,7 @@ jobs:
               // Generate chart image
               const imageBuffer = await chartJSNodeCanvas.renderToBuffer(configuration);
               const chartFileName = `burndown-${iterationKey.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}.png`;
-              const chartPath = `.github/workflows/${chartFileName}`;
+              const chartPath = `${chartsDir}/${chartFileName}`;
 
               fs.writeFileSync(chartPath, imageBuffer);
               console.log(`✅ Chart saved to ${chartPath}`);
@@ -499,7 +506,7 @@ jobs:
                 // Burndown chart image
                 if (stats.chartFile) {
                   markdown += `### Burndown Chart\n\n`;
-                  markdown += `![Burndown Chart](.github/workflows/${stats.chartFile})\n\n`;
+                  markdown += `![Burndown Chart](burndown-charts/${stats.chartFile})\n\n`;
                 } else {
                   markdown += `*Chart will be available after first data collection*\n\n`;
                 }
@@ -549,8 +556,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add BURNDOWN.md
-          git add .github/workflows/burndown-*.png
-          git add .github/workflows/burndown-history.json
+          git add burndown-charts/
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
