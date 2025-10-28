@@ -1,6 +1,6 @@
 # Burndown Report
 
-**Generated:** 2025-10-28 at 13:56:15 UTC
+**Generated:** 2025-10-28 at 14:04:48 UTC
 
 **Project:** [TEMPLATE] EngageMe
 
@@ -8,136 +8,140 @@
 
 ## 2025-13
 
-**Duration:** 2025-10-09 to 2025-10-30 (21 days)
+<table>
+<tr>
+<td><strong>Remaining Work</strong><br/>2h</td>
+<td><strong>Completed</strong><br/>99%</td>
+<td><strong>Average Burndown</strong><br/>8.3h/day</td>
+<td><strong>Total Scope</strong><br/>168h</td>
+</tr>
+</table>
 
+**Duration:** 2025-10-09 to 2025-10-30 (21 days)  
 **Progress:** Day 20 of 21 (2 days remaining)
-
-### Summary
-
-| Metric | Value |
-|--------|-------|
-| **Total Estimate** | 168 hours |
-| **Total Remaining** | 2 hours |
-| **Total Completed** | 166 hours |
-| **Completion %** | 99% |
-| **Velocity** | 8.3 hours/day |
-| **Issues Closed** | 0 / 2 |
-| **Projected Completion** | 1 days (✅ On Track) |
 
 ### Burndown Chart
 
-```
-Remaining Work: 2h
-Completed Work: 166h
+![Burndown Chart](burndown-charts/burndown-2025-13.png)
 
-[█████████████████████████████████████████████████░] 99%
-```
+### Metrics
 
-### Issues
+| Metric | Value |
+|--------|-------|
+| **Issues Closed** | 0 / 2 |
+| **Projected Completion** | 1 days (✅ On Track) |
+
+<details>
+<summary><strong>View All Issues (2)</strong></summary>
 
 | # | Title | Type | State | Estimate | Remaining | Completed |
 |---|-------|------|-------|----------|-----------|----------|
 | 🔵 #17 | [EPIC]  apic | Unknown | OPEN | 0h | 0h | 0h |
 | 🔵 #19 | [Task] tasssssk | Unknown | OPEN | 168h | 2h | 166h |
 
+</details>
+
 ---
 
 ## 2025-14
 
-**Duration:** 2025-10-30 to 2025-11-20 (21 days)
+<table>
+<tr>
+<td><strong>Remaining Work</strong><br/>0h</td>
+<td><strong>Completed</strong><br/>0%</td>
+<td><strong>Average Burndown</strong><br/>0h/day</td>
+<td><strong>Total Scope</strong><br/>0h</td>
+</tr>
+</table>
 
+**Duration:** 2025-10-30 to 2025-11-20 (21 days)  
 **Progress:** Day 0 of 21 (23 days remaining)
-
-### Summary
-
-| Metric | Value |
-|--------|-------|
-| **Total Estimate** | 0 hours |
-| **Total Remaining** | 0 hours |
-| **Total Completed** | 0 hours |
-| **Completion %** | 0% |
-| **Velocity** | 0 hours/day |
-| **Issues Closed** | 0 / 0 |
 
 ### Burndown Chart
 
-```
-Remaining Work: 0h
-Completed Work: 0h
+![Burndown Chart](burndown-charts/burndown-2025-14.png)
 
-[] 0%
-```
+### Metrics
 
-### Issues
+| Metric | Value |
+|--------|-------|
+| **Issues Closed** | 0 / 0 |
+
+<details>
+<summary><strong>View All Issues (0)</strong></summary>
 
 | # | Title | Type | State | Estimate | Remaining | Completed |
 |---|-------|------|-------|----------|-----------|----------|
+
+</details>
 
 ---
 
 ## 2025-15
 
-**Duration:** 2025-11-20 to 2025-12-11 (21 days)
+<table>
+<tr>
+<td><strong>Remaining Work</strong><br/>0h</td>
+<td><strong>Completed</strong><br/>0%</td>
+<td><strong>Average Burndown</strong><br/>0h/day</td>
+<td><strong>Total Scope</strong><br/>0h</td>
+</tr>
+</table>
 
+**Duration:** 2025-11-20 to 2025-12-11 (21 days)  
 **Progress:** Day 0 of 21 (44 days remaining)
-
-### Summary
-
-| Metric | Value |
-|--------|-------|
-| **Total Estimate** | 0 hours |
-| **Total Remaining** | 0 hours |
-| **Total Completed** | 0 hours |
-| **Completion %** | 0% |
-| **Velocity** | 0 hours/day |
-| **Issues Closed** | 0 / 0 |
 
 ### Burndown Chart
 
-```
-Remaining Work: 0h
-Completed Work: 0h
+![Burndown Chart](burndown-charts/burndown-2025-15.png)
 
-[] 0%
-```
+### Metrics
 
-### Issues
+| Metric | Value |
+|--------|-------|
+| **Issues Closed** | 0 / 0 |
+
+<details>
+<summary><strong>View All Issues (0)</strong></summary>
 
 | # | Title | Type | State | Estimate | Remaining | Completed |
 |---|-------|------|-------|----------|-----------|----------|
+
+</details>
 
 ---
 
 ## 2025-16
 
-**Duration:** 2025-12-11 to 2026-01-01 (21 days)
+<table>
+<tr>
+<td><strong>Remaining Work</strong><br/>0h</td>
+<td><strong>Completed</strong><br/>0%</td>
+<td><strong>Average Burndown</strong><br/>0h/day</td>
+<td><strong>Total Scope</strong><br/>0h</td>
+</tr>
+</table>
 
+**Duration:** 2025-12-11 to 2026-01-01 (21 days)  
 **Progress:** Day 0 of 21 (65 days remaining)
-
-### Summary
-
-| Metric | Value |
-|--------|-------|
-| **Total Estimate** | 0 hours |
-| **Total Remaining** | 0 hours |
-| **Total Completed** | 0 hours |
-| **Completion %** | 0% |
-| **Velocity** | 0 hours/day |
-| **Issues Closed** | 0 / 0 |
 
 ### Burndown Chart
 
-```
-Remaining Work: 0h
-Completed Work: 0h
+![Burndown Chart](burndown-charts/burndown-2025-16.png)
 
-[] 0%
-```
+### Metrics
 
-### Issues
+| Metric | Value |
+|--------|-------|
+| **Issues Closed** | 0 / 0 |
+
+<details>
+<summary><strong>View All Issues (0)</strong></summary>
 
 | # | Title | Type | State | Estimate | Remaining | Completed |
 |---|-------|------|-------|----------|-----------|----------|
+
+</details>
 
 ---
 
