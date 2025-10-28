@@ -1,0 +1,257 @@
+name: Issue Automation
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  automate-issue:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+      repository-projects: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install @octokit/graphql
+
+      - name: Auto-set Type and Inherit Milestone
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issueNumber = context.issue.number;
+            const issueBody = context.payload.issue.body || '';
+            const issueTitle = context.payload.issue.title || '';
+
+            // Determine issue type from title prefix
+            let issueType = null;
+            if (issueTitle.startsWith('[EPIC]')) {
+              issueType = 'Epic';
+            } else if (issueTitle.startsWith('[FEATURE]')) {
+              issueType = 'Feature';
+            } else if (issueTitle.startsWith('[STORY]')) {
+              issueType = 'User Story';
+            } else if (issueTitle.startsWith('[Task]')) {
+              issueType = 'Task';
+            }
+
+            console.log(`Issue #${issueNumber}: Type detected as "${issueType}"`);
+
+            // Extract parent issue reference
+            const parentMatch = issueBody.match(/(?:Epic|Feature|Parent Feature|Parent Epic):\s*#(\d+)/i);
+            let parentIssueNumber = null;
+            let parentMilestone = null;
+
+            if (parentMatch) {
+              parentIssueNumber = parseInt(parentMatch[1]);
+              console.log(`Parent issue reference found: #${parentIssueNumber}`);
+
+              // Get parent issue details to inherit milestone
+              try {
+                const parentIssue = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: parentIssueNumber
+                });
+
+                if (parentIssue.data.milestone) {
+                  parentMilestone = parentIssue.data.milestone;
+                  console.log(`Parent milestone found: ${parentMilestone.title}`);
+
+                  // Set milestone on current issue
+                  await github.rest.issues.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issueNumber,
+                    milestone: parentMilestone.number
+                  });
+
+                  console.log(`✅ Milestone "${parentMilestone.title}" inherited from parent issue #${parentIssueNumber}`);
+                } else {
+                  console.log('Parent issue has no milestone set');
+                }
+              } catch (error) {
+                console.error(`Error fetching parent issue #${parentIssueNumber}:`, error.message);
+              }
+            } else {
+              console.log('No parent issue reference found in issue body');
+            }
+
+            // Add label based on type
+            if (issueType) {
+              try {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber,
+                  labels: [issueType]
+                });
+                console.log(`✅ Label "${issueType}" added to issue`);
+              } catch (error) {
+                console.error('Error adding label:', error.message);
+              }
+            }
+
+            // Set project field (Type) using GraphQL
+            if (issueType) {
+              try {
+                // Get the issue node ID
+                const issueData = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber
+                });
+                const issueNodeId = issueData.data.node_id;
+
+                // Find projects associated with this repository
+                const projectsQuery = `
+                  query($owner: String!, $repo: String!) {
+                    repository(owner: $owner, name: $repo) {
+                      projectsV2(first: 10) {
+                        nodes {
+                          id
+                          title
+                          fields(first: 20) {
+                            nodes {
+                              ... on ProjectV2SingleSelectField {
+                                id
+                                name
+                                options {
+                                  id
+                                  name
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                `;
+
+                const projectsResult = await github.graphql(projectsQuery, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo
+                });
+
+                const projects = projectsResult.repository.projectsV2.nodes;
+                console.log(`Found ${projects.length} project(s)`);
+
+                for (const project of projects) {
+                  console.log(`Processing project: ${project.title}`);
+
+                  // Add issue to project first
+                  const addToProjectMutation = `
+                    mutation($projectId: ID!, $contentId: ID!) {
+                      addProjectV2ItemById(input: {
+                        projectId: $projectId
+                        contentId: $contentId
+                      }) {
+                        item {
+                          id
+                        }
+                      }
+                    }
+                  `;
+
+                  let itemId;
+                  try {
+                    const addResult = await github.graphql(addToProjectMutation, {
+                      projectId: project.id,
+                      contentId: issueNodeId
+                    });
+                    itemId = addResult.addProjectV2ItemById.item.id;
+                    console.log(`✅ Issue added to project with item ID: ${itemId}`);
+                  } catch (error) {
+                    console.log(`Issue might already be in project: ${error.message}`);
+                    // If already in project, we need to find the item ID
+                    continue;
+                  }
+
+                  // Find the Type field
+                  const typeField = project.fields.nodes.find(field =>
+                    field.name === 'Type' && field.options
+                  );
+
+                  if (typeField) {
+                    console.log(`Found Type field with ID: ${typeField.id}`);
+
+                    // Find the matching option
+                    const typeOption = typeField.options.find(opt =>
+                      opt.name === issueType
+                    );
+
+                    if (typeOption) {
+                      console.log(`Found matching type option: ${typeOption.name} (${typeOption.id})`);
+
+                      // Update the field value
+                      const updateFieldMutation = `
+                        mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                          updateProjectV2ItemFieldValue(input: {
+                            projectId: $projectId
+                            itemId: $itemId
+                            fieldId: $fieldId
+                            value: {
+                              singleSelectOptionId: $optionId
+                            }
+                          }) {
+                            projectV2Item {
+                              id
+                            }
+                          }
+                        }
+                      `;
+
+                      await github.graphql(updateFieldMutation, {
+                        projectId: project.id,
+                        itemId: itemId,
+                        fieldId: typeField.id,
+                        optionId: typeOption.id
+                      });
+
+                      console.log(`✅ Type field set to "${issueType}" in project "${project.title}"`);
+                    } else {
+                      console.log(`⚠️ Type option "${issueType}" not found in project field. Available options: ${typeField.options.map(o => o.name).join(', ')}`);
+                    }
+                  } else {
+                    console.log('⚠️ Type field not found in project. Please create a single-select field named "Type" with options: Epic, Feature, User Story, Task');
+                  }
+                }
+              } catch (error) {
+                console.error('Error setting project field:', error.message);
+                if (error.errors) {
+                  console.error('GraphQL errors:', JSON.stringify(error.errors, null, 2));
+                }
+              }
+            }
+
+            // Create comment summarizing automation actions
+            let commentBody = '### 🤖 Automation Summary\n\n';
+            if (issueType) {
+              commentBody += `✅ **Type**: Set to \`${issueType}\`\n`;
+            }
+            if (parentMilestone) {
+              commentBody += `✅ **Milestone**: Inherited \`${parentMilestone.title}\` from parent issue #${parentIssueNumber}\n`;
+            }
+            if (parentIssueNumber && !parentMilestone) {
+              commentBody += `ℹ️ **Note**: Parent issue #${parentIssueNumber} has no milestone to inherit\n`;
+            }
+
+            if (issueType || parentMilestone) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: commentBody
+              });
+            }

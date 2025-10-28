@@ -2,15 +2,29 @@
 name: Task
 about: Unit of work to be done
 title: "[Task] "
-labels: ''
+labels: 'Task'
 assignees: ''
 
 ---
 
 ## Description
+<!-- Provide a clear description of the task -->
 
 ## Parent Feature
-<!-- Link to the parent feature -->
-Feature: #issue_number
+<!-- Link to the parent feature or user story. The milestone will be automatically inherited. -->
+<!-- Example: Feature: #123 -->
+Feature: #
 
 ## Acceptance Criteria
+<!-- List specific criteria that must be met for this task to be considered complete -->
+- [ ]
+- [ ]
+
+## Technical Notes
+<!-- Any technical considerations or implementation details -->
+
+---
+**Note**: When this issue is created, automation will:
+- ✅ Set the Type field to "Task" in your project board
+- ✅ Inherit the milestone from the parent feature (if set)
+- ✅ Add the "Task" label

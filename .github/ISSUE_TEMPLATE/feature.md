@@ -2,7 +2,7 @@
 name: Feature
 about: Define a feature that delivers specific functionality
 title: "[FEATURE] "
-labels: ''
+labels: 'Feature'
 assignees: ''
 
 ---
@@ -11,8 +11,9 @@ assignees: ''
 <!-- Provide a clear description of the feature -->
 
 ## Parent Epic
-<!-- Link to the parent epic -->
-Epic: #issue_number
+<!-- Link to the parent epic. The milestone will be automatically inherited. -->
+<!-- Example: Epic: #123 -->
+Epic: #
 
 ## Business Objective
 <!-- Why are we building this feature? What problem does it solve? -->
@@ -36,8 +37,8 @@ Epic: #issue_number
 
 ## User Stories
 <!-- Link to user stories that implement this feature -->
-- [ ] #issue_number - As a [user], I want [goal]
-- [ ] #issue_number - As a [user], I want [goal]
+- [ ] #
+- [ ] #
 
 ## Acceptance Criteria
 <!-- High-level acceptance criteria for the feature -->
@@ -61,3 +62,9 @@ Epic: #issue_number
 - [ ] Documentation updated
 - [ ] Deployed to staging environment
 - [ ] Product owner approval received
+
+---
+**Note**: When this issue is created, automation will:
+- ✅ Set the Type field to "Feature" in your project board
+- ✅ Inherit the milestone from the parent epic (if set)
+- ✅ Add the "Feature" label

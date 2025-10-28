@@ -1,8 +1,8 @@
 ---
 name: Epic
 about: Create an epic to track a large initiative or project goal
-title: "[EPIC]"
-labels: ''
+title: "[EPIC] "
+labels: 'Epic'
 assignees: ''
 
 ---
@@ -38,8 +38,8 @@ assignees: ''
 
 ## Features
 <!-- Link to related features that compose this epic -->
-- [ ] #issue_number - Feature name
-- [ ] #issue_number - Feature name
+- [ ] #
+- [ ] #
 
 ## Timeline
 - **Target Start Date:** 
@@ -54,3 +54,9 @@ assignees: ''
 
 ## Additional Context
 <!-- Any other relevant information, mockups, diagrams, or references -->
+
+---
+**Note**: When this issue is created, automation will:
+- ✅ Set the Type field to "Epic" in your project board
+- ✅ Add the "Epic" label
+- ✅ Child features will automatically inherit the milestone when you assign one to this epic
