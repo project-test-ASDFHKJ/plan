@@ -195,10 +195,10 @@ jobs:
                 });
                 const issueNodeId = issueData.data.node_id;
 
-                // Find projects associated with this repository
+                // Find projects associated with this repository (organization-level)
                 const projectsQuery = `
-                  query($owner: String!, $repo: String!) {
-                    repository(owner: $owner, name: $repo) {
+                  query($owner: String!) {
+                    organization(login: $owner) {
                       projectsV2(first: 10) {
                         nodes {
                           id
@@ -222,11 +222,10 @@ jobs:
                 `;
 
                 const projectsResult = await github.graphql(projectsQuery, {
-                  owner: context.repo.owner,
-                  repo: context.repo.repo
+                  owner: context.repo.owner
                 });
 
-                const projects = projectsResult.repository.projectsV2.nodes;
+                const projects = projectsResult.organization.projectsV2.nodes;
                 console.log(`Found ${projects.length} project(s)`);
 
                 // Find the specific project "[TEMPLATE] EngageMe"
@@ -264,8 +263,8 @@ jobs:
                     // If already in project, we need to find the item ID
                     // Try to find it in the project items
                     const projectQuery = `
-                      query($owner: String!, $repo: String!) {
-                        repository(owner: $owner, name: $repo) {
+                      query($owner: String!) {
+                        organization(login: $owner) {
                           projectsV2(first: 10) {
                             nodes {
                               id
@@ -287,11 +286,10 @@ jobs:
                     `;
 
                     const projectResult = await github.graphql(projectQuery, {
-                      owner: context.repo.owner,
-                      repo: context.repo.repo
+                      owner: context.repo.owner
                     });
 
-                    const targetProject = projectResult.repository.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
+                    const targetProject = projectResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
                     if (targetProject) {
                       const item = targetProject.items.nodes.find(i => i.content && i.content.number === issueNumber);
                       if (item) {
