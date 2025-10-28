@@ -160,33 +160,39 @@ jobs:
 
               const projects = projectResult.repository.projectsV2.nodes;
 
-              for (const project of projects) {
-                // Find the item for this issue
-                const item = project.items.nodes.find(i =>
-                  i.content && i.content.number === issueNumber
+              // Find the specific project "[TEMPLATE] EngageMe"
+              const project = projects.find(p => p.title === '[TEMPLATE] EngageMe');
+
+              if (!project) {
+                console.log(`⚠️  Issue #${issueNumber} - [TEMPLATE] EngageMe project not found`);
+                return null;
+              }
+
+              // Find the item for this issue
+              const item = project.items.nodes.find(i =>
+                i.content && i.content.number === issueNumber
+              );
+
+              if (item) {
+                // Find iteration value
+                const iterationValue = item.fieldValues.nodes.find(fv =>
+                  fv.field && fv.field.name === 'Iteration'
                 );
 
-                if (item) {
-                  // Find iteration value
-                  const iterationValue = item.fieldValues.nodes.find(fv =>
-                    fv.field && fv.field.name === 'Iteration'
-                  );
+                // Find iteration field
+                const iterationField = project.fields.nodes.find(f =>
+                  f.name === 'Iteration'
+                );
 
-                  // Find iteration field
-                  const iterationField = project.fields.nodes.find(f =>
-                    f.name === 'Iteration'
-                  );
-
-                  return {
-                    projectId: project.id,
-                    itemId: item.id,
-                    iteration: iterationValue ? {
-                      id: iterationValue.iterationId,
-                      title: iterationValue.title
-                    } : null,
-                    iterationField: iterationField
-                  };
-                }
+                return {
+                  projectId: project.id,
+                  itemId: item.id,
+                  iteration: iterationValue ? {
+                    id: iterationValue.iterationId,
+                    title: iterationValue.title
+                  } : null,
+                  iterationField: iterationField
+                };
               }
 
               return null;

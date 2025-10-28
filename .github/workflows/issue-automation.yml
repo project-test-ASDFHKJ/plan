@@ -229,7 +229,12 @@ jobs:
                 const projects = projectsResult.repository.projectsV2.nodes;
                 console.log(`Found ${projects.length} project(s)`);
 
-                for (const project of projects) {
+                // Find the specific project "[TEMPLATE] EngageMe"
+                const project = projects.find(p => p.title === '[TEMPLATE] EngageMe');
+
+                if (!project) {
+                  console.log('⚠️  [TEMPLATE] EngageMe project not found');
+                } else {
                   console.log(`Processing project: ${project.title}`);
 
                   // Add issue to project first
@@ -257,56 +262,96 @@ jobs:
                   } catch (error) {
                     console.log(`Issue might already be in project: ${error.message}`);
                     // If already in project, we need to find the item ID
-                    continue;
-                  }
-
-                  // Find the Type field
-                  const typeField = project.fields.nodes.find(field =>
-                    field.name === 'Type' && field.options
-                  );
-
-                  if (typeField) {
-                    console.log(`Found Type field with ID: ${typeField.id}`);
-
-                    // Find the matching option
-                    const typeOption = typeField.options.find(opt =>
-                      opt.name === issueType
-                    );
-
-                    if (typeOption) {
-                      console.log(`Found matching type option: ${typeOption.name} (${typeOption.id})`);
-
-                      // Update the field value
-                      const updateFieldMutation = `
-                        mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
-                          updateProjectV2ItemFieldValue(input: {
-                            projectId: $projectId
-                            itemId: $itemId
-                            fieldId: $fieldId
-                            value: {
-                              singleSelectOptionId: $optionId
-                            }
-                          }) {
-                            projectV2Item {
+                    // Try to find it in the project items
+                    const projectQuery = `
+                      query($owner: String!, $repo: String!) {
+                        repository(owner: $owner, name: $repo) {
+                          projectsV2(first: 10) {
+                            nodes {
                               id
+                              title
+                              items(first: 100) {
+                                nodes {
+                                  id
+                                  content {
+                                    ... on Issue {
+                                      number
+                                    }
+                                  }
+                                }
+                              }
                             }
                           }
                         }
-                      `;
+                      }
+                    `;
 
-                      await github.graphql(updateFieldMutation, {
-                        projectId: project.id,
-                        itemId: itemId,
-                        fieldId: typeField.id,
-                        optionId: typeOption.id
-                      });
+                    const projectResult = await github.graphql(projectQuery, {
+                      owner: context.repo.owner,
+                      repo: context.repo.repo
+                    });
 
-                      console.log(`✅ Type field set to "${issueType}" in project "${project.title}"`);
-                    } else {
-                      console.log(`⚠️ Type option "${issueType}" not found in project field. Available options: ${typeField.options.map(o => o.name).join(', ')}`);
+                    const targetProject = projectResult.repository.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
+                    if (targetProject) {
+                      const item = targetProject.items.nodes.find(i => i.content && i.content.number === issueNumber);
+                      if (item) {
+                        itemId = item.id;
+                        console.log(`✅ Found existing item ID: ${itemId}`);
+                      }
                     }
+                  }
+
+                  if (!itemId) {
+                    console.log('⚠️  Could not get item ID, skipping project field update');
                   } else {
-                    console.log('⚠️ Type field not found in project. Please create a single-select field named "Type" with options: Epic, Feature, User Story, Task');
+                    // Find the Type field
+                    const typeField = project.fields.nodes.find(field =>
+                      field.name === 'Type' && field.options
+                    );
+
+                    if (typeField) {
+                      console.log(`Found Type field with ID: ${typeField.id}`);
+
+                      // Find the matching option
+                      const typeOption = typeField.options.find(opt =>
+                        opt.name === issueType
+                      );
+
+                      if (typeOption) {
+                        console.log(`Found matching type option: ${typeOption.name} (${typeOption.id})`);
+
+                        // Update the field value
+                        const updateFieldMutation = `
+                          mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                            updateProjectV2ItemFieldValue(input: {
+                              projectId: $projectId
+                              itemId: $itemId
+                              fieldId: $fieldId
+                              value: {
+                                singleSelectOptionId: $optionId
+                              }
+                            }) {
+                              projectV2Item {
+                                id
+                              }
+                            }
+                          }
+                        `;
+
+                        await github.graphql(updateFieldMutation, {
+                          projectId: project.id,
+                          itemId: itemId,
+                          fieldId: typeField.id,
+                          optionId: typeOption.id
+                        });
+
+                        console.log(`✅ Type field set to "${issueType}" in project "${project.title}"`);
+                      } else {
+                        console.log(`⚠️ Type option "${issueType}" not found in project field. Available options: ${typeField.options.map(o => o.name).join(', ')}`);
+                      }
+                    } else {
+                      console.log('⚠️ Type field not found in project. Please create a single-select field named "Type" with options: Epic, Feature, User Story, Task');
+                    }
                   }
                 }
               } catch (error) {

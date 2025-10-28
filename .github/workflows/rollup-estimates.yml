@@ -136,30 +136,36 @@ jobs:
 
               const projects = projectResult.repository.projectsV2.nodes;
 
-              for (const project of projects) {
-                // Find the item for this issue
-                const item = project.items.nodes.find(i =>
-                  i.content && i.content.number === issueNumber
-                );
+              // Find the specific project "[TEMPLATE] EngageMe"
+              const project = projects.find(p => p.title === '[TEMPLATE] EngageMe');
 
-                if (item) {
-                  const fields = {};
-                  item.fieldValues.nodes.forEach(fv => {
-                    if (fv.field && fv.number !== undefined) {
-                      fields[fv.field.name] = {
-                        value: fv.number,
-                        fieldId: fv.field.id
-                      };
-                    }
-                  });
+              if (!project) {
+                console.log(`⚠️  Issue #${issueNumber} - [TEMPLATE] EngageMe project not found`);
+                return null;
+              }
 
-                  return {
-                    projectId: project.id,
-                    itemId: item.id,
-                    fields: fields,
-                    allFields: project.fields.nodes
-                  };
-                }
+              // Find the item for this issue
+              const item = project.items.nodes.find(i =>
+                i.content && i.content.number === issueNumber
+              );
+
+              if (item) {
+                const fields = {};
+                item.fieldValues.nodes.forEach(fv => {
+                  if (fv.field && fv.number !== undefined) {
+                    fields[fv.field.name] = {
+                      value: fv.number,
+                      fieldId: fv.field.id
+                    };
+                  }
+                });
+
+                return {
+                  projectId: project.id,
+                  itemId: item.id,
+                  fields: fields,
+                  allFields: project.fields.nodes
+                };
               }
 
               return null;
