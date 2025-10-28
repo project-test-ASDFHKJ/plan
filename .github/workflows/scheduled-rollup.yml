@@ -2,8 +2,8 @@ name: Scheduled Rollup - All Issues
 
 on:
   schedule:
-    # Runs every minute
-    - cron: '* * * * *'
+    # Runs every 5 minutes (more reliable than every minute)
+    - cron: '*/5 * * * *'
   workflow_dispatch:  # Allow manual triggering
 
 jobs:
