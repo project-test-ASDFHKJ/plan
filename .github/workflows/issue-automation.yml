@@ -185,6 +185,10 @@ jobs:
             }
 
             // Set project field (Type) using GraphQL
+            let childProjectId = null;
+            let childItemId = null;
+            let childProjectFields = null;
+
             if (issueType) {
               try {
                 // Get the issue node ID
@@ -236,6 +240,10 @@ jobs:
                 } else {
                   console.log(`Processing project: ${project.title}`);
 
+                  // Store project info for later use (iteration inheritance)
+                  childProjectId = project.id;
+                  childProjectFields = project.fields.nodes;
+
                   // Add issue to project first
                   const addToProjectMutation = `
                     mutation($projectId: ID!, $contentId: ID!) {
@@ -257,6 +265,7 @@ jobs:
                       contentId: issueNodeId
                     });
                     itemId = addResult.addProjectV2ItemById.item.id;
+                    childItemId = itemId;  // Store for iteration inheritance
                     console.log(`✅ Issue added to project with item ID: ${itemId}`);
                   } catch (error) {
                     console.log(`Issue might already be in project: ${error.message}`);
@@ -294,6 +303,7 @@ jobs:
                       const item = targetProject.items.nodes.find(i => i.content && i.content.number === issueNumber);
                       if (item) {
                         itemId = item.id;
+                        childItemId = itemId;  // Store for iteration inheritance
                         console.log(`✅ Found existing item ID: ${itemId}`);
                       }
                     }
@@ -364,16 +374,12 @@ jobs:
             // Inherit iteration from parent (AFTER issue is in project)
             // ========================================
 
-            if (parentIssueNumber) {
-              // Wait for GraphQL propagation (issue needs time to appear in project queries)
-              console.log(`\n📅 Waiting for project data to propagate...`);
-              await new Promise(resolve => setTimeout(resolve, 3000));
-
-              console.log(`📅 Checking for parent iteration...`);
+            if (parentIssueNumber && childProjectId && childItemId && childProjectFields) {
+              console.log(`\n📅 Checking for parent iteration...`);
 
               try {
-                // Function to get iteration for an issue
-                async function getIssueIteration(issueNum) {
+                // Function to get iteration for parent issue
+                async function getParentIteration(issueNum) {
                   const projectQuery = `
                     query($owner: String!) {
                       organization(login: $owner) {
@@ -405,14 +411,6 @@ jobs:
                                 }
                               }
                             }
-                            fields(first: 20) {
-                              nodes {
-                                ... on ProjectV2IterationField {
-                                  id
-                                  name
-                                }
-                              }
-                            }
                           }
                         }
                       }
@@ -437,30 +435,23 @@ jobs:
 
                   if (!iterationValue) return null;
 
-                  const iterationField = project.fields.nodes.find(f => f.name === 'Iteration');
-
                   return {
-                    projectId: project.id,
-                    itemId: item.id,
-                    iteration: {
-                      id: iterationValue.iterationId,
-                      title: iterationValue.title
-                    },
-                    iterationFieldId: iterationField ? iterationField.id : null
+                    id: iterationValue.iterationId,
+                    title: iterationValue.title
                   };
                 }
 
                 // Get parent's iteration
-                const parentIterationInfo = await getIssueIteration(parentIssueNumber);
+                const parentIteration = await getParentIteration(parentIssueNumber);
 
-                if (parentIterationInfo && parentIterationInfo.iteration) {
-                  console.log(`Parent iteration found: ${parentIterationInfo.iteration.title}`);
+                if (parentIteration) {
+                  console.log(`Parent iteration found: ${parentIteration.title}`);
 
-                  // Get current issue's project info
-                  const childIterationInfo = await getIssueIteration(issueNumber);
+                  // Find iteration field ID from stored child project fields
+                  const iterationField = childProjectFields.find(f => f.name === 'Iteration');
 
-                  if (childIterationInfo && childIterationInfo.iterationFieldId) {
-                    // Set iteration on child issue
+                  if (iterationField && iterationField.id) {
+                    // Set iteration on child issue using stored values
                     const updateIterationMutation = `
                       mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $iterationId: String!) {
                         updateProjectV2ItemFieldValue(input: {
@@ -479,15 +470,15 @@ jobs:
                     `;
 
                     await github.graphql(updateIterationMutation, {
-                      projectId: childIterationInfo.projectId,
-                      itemId: childIterationInfo.itemId,
-                      fieldId: childIterationInfo.iterationFieldId,
-                      iterationId: parentIterationInfo.iteration.id
+                      projectId: childProjectId,
+                      itemId: childItemId,
+                      fieldId: iterationField.id,
+                      iterationId: parentIteration.id
                     });
 
-                    console.log(`✅ Iteration "${parentIterationInfo.iteration.title}" inherited from parent issue #${parentIssueNumber}`);
+                    console.log(`✅ Iteration "${parentIteration.title}" inherited from parent issue #${parentIssueNumber}`);
                   } else {
-                    console.log('⚠️  Child issue not found in project or iteration field missing');
+                    console.log('⚠️  Iteration field not found in project');
                   }
                 } else {
                   console.log('Parent issue has no iteration set');
