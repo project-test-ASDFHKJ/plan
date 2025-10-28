@@ -18,6 +18,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install chart dependencies
+        run: npm install chartjs-node-canvas date-fns
+
       - name: Generate Burndown Report
         uses: actions/github-script@v7
         with:
@@ -27,6 +35,9 @@ jobs:
             console.log('=====================================');
 
             const fs = require('fs');
+            const path = require('path');
+            const { ChartJSNodeCanvas } = require('chartjs-node-canvas');
+            const { format, parseISO, differenceInDays, addDays } = require('date-fns');
 
             // Function to get all issues and their project fields
             async function getProjectData() {
@@ -242,6 +253,220 @@ jobs:
               console.log(`  Velocity: ${velocity} per day, Projected completion in ${projectedCompletion} days`);
             }
 
+            // Load or create historical burndown data
+            const historyFile = '.github/workflows/burndown-history.json';
+            let burndownHistory = {};
+
+            if (fs.existsSync(historyFile)) {
+              try {
+                burndownHistory = JSON.parse(fs.readFileSync(historyFile, 'utf8'));
+                console.log('Loaded historical burndown data');
+              } catch (error) {
+                console.log('Error loading history, starting fresh:', error.message);
+              }
+            }
+
+            // Update history with today's data
+            const today = new Date().toISOString().split('T')[0];
+
+            for (const stats of iterationStats) {
+              const iterationKey = stats.title;
+
+              if (!burndownHistory[iterationKey]) {
+                burndownHistory[iterationKey] = {
+                  iteration: stats.title,
+                  startDate: stats.startDate,
+                  endDate: stats.endDate,
+                  totalEstimate: stats.totalEstimate,
+                  dailyData: []
+                };
+              }
+
+              // Add or update today's entry
+              const existingIndex = burndownHistory[iterationKey].dailyData.findIndex(d => d.date === today);
+              const dailyEntry = {
+                date: today,
+                remaining: stats.totalRemaining,
+                completed: stats.totalCompleted,
+                totalEstimate: stats.totalEstimate,
+                completedCount: stats.completedCount,
+                totalCount: stats.totalCount
+              };
+
+              if (existingIndex >= 0) {
+                burndownHistory[iterationKey].dailyData[existingIndex] = dailyEntry;
+              } else {
+                burndownHistory[iterationKey].dailyData.push(dailyEntry);
+              }
+
+              // Sort by date
+              burndownHistory[iterationKey].dailyData.sort((a, b) => a.date.localeCompare(b.date));
+            }
+
+            // Save updated history
+            fs.writeFileSync(historyFile, JSON.stringify(burndownHistory, null, 2));
+            console.log('Updated burndown history');
+
+            // Generate burndown charts for each iteration
+            const width = 1200;
+            const height = 600;
+            const chartJSNodeCanvas = new ChartJSNodeCanvas({ width, height });
+
+            for (const stats of iterationStats) {
+              const iterationKey = stats.title;
+              const history = burndownHistory[iterationKey];
+
+              if (!history || history.dailyData.length === 0) {
+                console.log(`No historical data for ${iterationKey}, skipping chart`);
+                continue;
+              }
+
+              console.log(`\n📈 Generating chart for ${iterationKey}...`);
+
+              // Prepare data points
+              const startDate = parseISO(stats.startDate);
+              const endDate = parseISO(stats.endDate);
+              const totalDays = differenceInDays(endDate, startDate);
+
+              // Generate all dates in range
+              const allDates = [];
+              for (let i = 0; i <= totalDays; i++) {
+                const date = addDays(startDate, i);
+                allDates.push(format(date, 'yyyy-MM-dd'));
+              }
+
+              // Map historical data to dates
+              const remainingData = [];
+              const idealTrendData = [];
+              const scopeChangeData = [];
+
+              const initialEstimate = history.totalEstimate;
+              let lastKnownRemaining = initialEstimate;
+
+              allDates.forEach((date, index) => {
+                // Find actual data for this date
+                const dataPoint = history.dailyData.find(d => d.date === date);
+
+                if (dataPoint) {
+                  lastKnownRemaining = dataPoint.remaining;
+                  remainingData.push(dataPoint.remaining);
+                } else {
+                  // Use last known value if no data for this date
+                  remainingData.push(index === 0 ? initialEstimate : lastKnownRemaining);
+                }
+
+                // Ideal trend: linear burndown from start to zero
+                const idealRemaining = initialEstimate * (1 - index / totalDays);
+                idealTrendData.push(Math.max(0, idealRemaining));
+              });
+
+              // Format dates for display (MM/DD)
+              const labels = allDates.map(date => format(parseISO(date), 'MM/dd'));
+
+              // Chart configuration (Azure DevOps style)
+              const configuration = {
+                type: 'line',
+                data: {
+                  labels: labels,
+                  datasets: [
+                    {
+                      label: 'Remaining',
+                      data: remainingData,
+                      fill: true,
+                      backgroundColor: 'rgba(0, 120, 212, 0.3)', // Azure blue
+                      borderColor: 'rgba(0, 120, 212, 1)',
+                      borderWidth: 2,
+                      tension: 0.1,
+                      pointRadius: 3,
+                      pointBackgroundColor: 'rgba(0, 120, 212, 1)'
+                    },
+                    {
+                      label: 'Ideal Trend',
+                      data: idealTrendData,
+                      fill: false,
+                      borderColor: 'rgba(150, 150, 150, 0.8)',
+                      borderWidth: 2,
+                      borderDash: [],
+                      tension: 0,
+                      pointRadius: 0
+                    }
+                  ]
+                },
+                options: {
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    title: {
+                      display: true,
+                      text: `Burndown - ${stats.title}`,
+                      font: { size: 20, weight: 'bold' },
+                      color: '#ffffff'
+                    },
+                    legend: {
+                      display: true,
+                      position: 'bottom',
+                      labels: {
+                        color: '#ffffff',
+                        font: { size: 12 }
+                      }
+                    }
+                  },
+                  scales: {
+                    x: {
+                      grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'
+                      },
+                      ticks: {
+                        color: '#ffffff',
+                        font: { size: 11 }
+                      }
+                    },
+                    y: {
+                      beginAtZero: true,
+                      grid: {
+                        color: 'rgba(255, 255, 255, 0.1)'
+                      },
+                      ticks: {
+                        color: '#ffffff',
+                        font: { size: 11 }
+                      },
+                      title: {
+                        display: true,
+                        text: 'Work Remaining',
+                        color: '#ffffff',
+                        font: { size: 14 }
+                      }
+                    }
+                  },
+                  layout: {
+                    padding: 20
+                  }
+                },
+                plugins: [{
+                  id: 'customCanvasBackgroundColor',
+                  beforeDraw: (chart) => {
+                    const ctx = chart.canvas.getContext('2d');
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'destination-over';
+                    ctx.fillStyle = '#2d2d2d'; // Dark background like Azure DevOps
+                    ctx.fillRect(0, 0, chart.width, chart.height);
+                    ctx.restore();
+                  }
+                }]
+              };
+
+              // Generate chart image
+              const imageBuffer = await chartJSNodeCanvas.renderToBuffer(configuration);
+              const chartFileName = `burndown-${iterationKey.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}.png`;
+              const chartPath = `.github/workflows/${chartFileName}`;
+
+              fs.writeFileSync(chartPath, imageBuffer);
+              console.log(`✅ Chart saved to ${chartPath}`);
+
+              // Store chart info in stats for markdown generation
+              stats.chartFile = chartFileName;
+            }
+
             // Generate markdown report
             const now = new Date();
             const dateStr = now.toISOString().split('T')[0];
@@ -257,17 +482,32 @@ jobs:
             } else {
               for (const stats of iterationStats) {
                 markdown += `## ${stats.title}\n\n`;
-                markdown += `**Duration:** ${stats.startDate} to ${stats.endDate} (${stats.totalDays} days)\n\n`;
+
+                // Summary metrics (similar to Azure DevOps top section)
+                markdown += `<table>\n`;
+                markdown += `<tr>\n`;
+                markdown += `<td><strong>Remaining Work</strong><br/>${stats.totalRemaining}h</td>\n`;
+                markdown += `<td><strong>Completed</strong><br/>${stats.completionPercent}%</td>\n`;
+                markdown += `<td><strong>Average Burndown</strong><br/>${stats.velocity}h/day</td>\n`;
+                markdown += `<td><strong>Total Scope</strong><br/>${stats.totalEstimate}h</td>\n`;
+                markdown += `</tr>\n`;
+                markdown += `</table>\n\n`;
+
+                markdown += `**Duration:** ${stats.startDate} to ${stats.endDate} (${stats.totalDays} days)  \n`;
                 markdown += `**Progress:** Day ${stats.daysElapsed} of ${stats.totalDays} (${stats.daysRemaining} days remaining)\n\n`;
 
-                markdown += `### Summary\n\n`;
+                // Burndown chart image
+                if (stats.chartFile) {
+                  markdown += `### Burndown Chart\n\n`;
+                  markdown += `![Burndown Chart](.github/workflows/${stats.chartFile})\n\n`;
+                } else {
+                  markdown += `*Chart will be available after first data collection*\n\n`;
+                }
+
+                // Additional metrics
+                markdown += `### Metrics\n\n`;
                 markdown += `| Metric | Value |\n`;
                 markdown += `|--------|-------|\n`;
-                markdown += `| **Total Estimate** | ${stats.totalEstimate} hours |\n`;
-                markdown += `| **Total Remaining** | ${stats.totalRemaining} hours |\n`;
-                markdown += `| **Total Completed** | ${stats.totalCompleted} hours |\n`;
-                markdown += `| **Completion %** | ${stats.completionPercent}% |\n`;
-                markdown += `| **Velocity** | ${stats.velocity} hours/day |\n`;
                 markdown += `| **Issues Closed** | ${stats.completedCount} / ${stats.totalCount} |\n`;
 
                 if (stats.projectedCompletion > 0) {
@@ -278,21 +518,9 @@ jobs:
 
                 markdown += `\n`;
 
-                // Burndown chart (text-based)
-                markdown += `### Burndown Chart\n\n`;
-                markdown += `\`\`\`\n`;
-                markdown += `Remaining Work: ${stats.totalRemaining}h\n`;
-                markdown += `Completed Work: ${stats.totalCompleted}h\n\n`;
-
-                const barLength = 50;
-                const completedBars = Math.round((stats.totalCompleted / stats.totalEstimate) * barLength);
-                const remainingBars = barLength - completedBars;
-
-                markdown += `[${'█'.repeat(completedBars)}${'░'.repeat(remainingBars)}] ${stats.completionPercent}%\n`;
-                markdown += `\`\`\`\n\n`;
-
                 // Issue breakdown
-                markdown += `### Issues\n\n`;
+                markdown += `<details>\n`;
+                markdown += `<summary><strong>View All Issues (${stats.issueDetails.length})</strong></summary>\n\n`;
                 markdown += `| # | Title | Type | State | Estimate | Remaining | Completed |\n`;
                 markdown += `|---|-------|------|-------|----------|-----------|----------|\n`;
 
@@ -301,7 +529,7 @@ jobs:
                   markdown += `| ${stateIcon} #${issue.number} | ${issue.title} | ${issue.type} | ${issue.state} | ${issue.estimate}h | ${issue.remaining}h | ${issue.completed}h |\n`;
                 }
 
-                markdown += `\n`;
+                markdown += `\n</details>\n\n`;
                 markdown += `---\n\n`;
               }
             }
@@ -321,10 +549,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add BURNDOWN.md
+          git add .github/workflows/burndown-*.png
+          git add .github/workflows/burndown-history.json
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Update burndown report - $(date -u +%Y-%m-%d)"
+            git commit -m "Update burndown report and charts - $(date -u +%Y-%m-%d)"
             git push
-            echo "✅ Burndown report committed and pushed"
+            echo "✅ Burndown report, charts, and history committed and pushed"
           fi

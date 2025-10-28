@@ -74,21 +74,26 @@ Tasks and User Stories are validated before moving to "In Progress" status:
 - Encourages estimation discipline
 
 ### 6. Burndown Report Generation
-Automated daily burndown reports track progress across all iterations:
-- Generates a markdown report showing sprint progress
+Automated daily burndown reports track progress across all iterations with visual charts:
+- Generates actual burndown **chart images** (similar to Azure DevOps)
+- Shows "Remaining Work" as a blue filled area
+- Shows "Ideal Trend" as a gray line for comparison
 - Tracks total estimate, remaining work, and completion percentage
 - Calculates daily velocity (work completed per day)
 - Projects completion date based on current velocity
 - Lists all issues in each iteration with their status
 
 **Report location:** `BURNDOWN.md` in the repository root
+**Chart images:** `.github/workflows/burndown-*.png`
+**Historical data:** `.github/workflows/burndown-history.json`
 
 **Key benefits:**
-- Historical tracking via git commits
-- Visual progress charts (text-based)
-- No external tools required
+- **Visual burndown charts** like professional project management tools
+- Historical tracking via git commits (view chart evolution over time)
+- No external tools or services required
 - Easy to link from project board
-- Daily snapshots show trends over time
+- Daily snapshots show trends and patterns
+- On-track/At-risk status automatically calculated
 
 ## Setup Requirements
 
@@ -291,8 +296,12 @@ This workflow handles:
   - Completion percentage
   - Daily velocity (work burned per day)
   - Projected completion date
-- Generating markdown report with text-based charts
-- Committing `BURNDOWN.md` to repository
+- **Generating visual burndown chart images** (PNG format)
+  - Blue filled area showing "Remaining Work"
+  - Gray line showing "Ideal Trend"
+  - Professional styling similar to Azure DevOps
+- Storing historical daily data for trend analysis
+- Committing `BURNDOWN.md`, chart images, and history to repository
 - Providing historical tracking via git commits
 
 **Manual Trigger:**
@@ -304,8 +313,10 @@ Or via GitHub UI: Actions → Generate Burndown Report → Run workflow
 
 **View Reports:**
 - Latest report: `BURNDOWN.md` in repository root
-- Historical reports: View git history of `BURNDOWN.md`
-- Can link from project board or wiki
+- Chart images: `.github/workflows/burndown-*.png`
+- Historical reports: View git history of `BURNDOWN.md` and chart images
+- Historical data: `.github/workflows/burndown-history.json` (tracks daily progress)
+- Can link from project board, wiki, or README
 
 No additional configuration is needed - all workflows use the PAT token configured in setup step 0.
 
@@ -482,6 +493,8 @@ Add your custom parent keywords to the regex pattern.
 - `.github/ISSUE_TEMPLATE/user-story.md` - User Story template
 - `.github/ISSUE_TEMPLATE/task.md` - Task template
 - `BURNDOWN.md` - Auto-generated burndown report (updated daily)
+- `.github/workflows/burndown-*.png` - Auto-generated burndown chart images
+- `.github/workflows/burndown-history.json` - Historical burndown data for trending
 
 ## Benefits
 
