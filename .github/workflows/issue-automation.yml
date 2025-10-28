@@ -160,6 +160,130 @@ jobs:
                 } else {
                   console.log('Parent issue has no milestone set');
                 }
+
+                // Inherit iteration from parent
+                console.log(`\n📅 Checking for parent iteration...`);
+
+                // Function to get iteration for an issue
+                async function getIssueIteration(issueNum) {
+                  const projectQuery = `
+                    query($owner: String!) {
+                      organization(login: $owner) {
+                        projectsV2(first: 10) {
+                          nodes {
+                            id
+                            title
+                            items(first: 100) {
+                              nodes {
+                                id
+                                content {
+                                  ... on Issue {
+                                    number
+                                  }
+                                }
+                                fieldValues(first: 20) {
+                                  nodes {
+                                    ... on ProjectV2ItemFieldIterationValue {
+                                      title
+                                      iterationId
+                                      field {
+                                        ... on ProjectV2IterationField {
+                                          id
+                                          name
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                            fields(first: 20) {
+                              nodes {
+                                ... on ProjectV2IterationField {
+                                  id
+                                  name
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  `;
+
+                  const result = await github.graphql(projectQuery, {
+                    owner: context.repo.owner
+                  });
+
+                  const projects = result.organization.projectsV2.nodes;
+                  const project = projects.find(p => p.title === '[TEMPLATE] EngageMe');
+
+                  if (!project) return null;
+
+                  const item = project.items.nodes.find(i => i.content && i.content.number === issueNum);
+                  if (!item) return null;
+
+                  const iterationValue = item.fieldValues.nodes.find(fv =>
+                    fv.field && fv.field.name === 'Iteration' && fv.iterationId
+                  );
+
+                  if (!iterationValue) return null;
+
+                  const iterationField = project.fields.nodes.find(f => f.name === 'Iteration');
+
+                  return {
+                    projectId: project.id,
+                    itemId: item.id,
+                    iteration: {
+                      id: iterationValue.iterationId,
+                      title: iterationValue.title
+                    },
+                    iterationFieldId: iterationField ? iterationField.id : null
+                  };
+                }
+
+                // Get parent's iteration
+                const parentIterationInfo = await getIssueIteration(parentIssueNumber);
+
+                if (parentIterationInfo && parentIterationInfo.iteration) {
+                  console.log(`Parent iteration found: ${parentIterationInfo.iteration.title}`);
+
+                  // Get current issue's project info
+                  const childIterationInfo = await getIssueIteration(issueNumber);
+
+                  if (childIterationInfo && childIterationInfo.iterationFieldId) {
+                    // Set iteration on child issue
+                    const updateIterationMutation = `
+                      mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $iterationId: String!) {
+                        updateProjectV2ItemFieldValue(input: {
+                          projectId: $projectId
+                          itemId: $itemId
+                          fieldId: $fieldId
+                          value: {
+                            iterationId: $iterationId
+                          }
+                        }) {
+                          projectV2Item {
+                            id
+                          }
+                        }
+                      }
+                    `;
+
+                    await github.graphql(updateIterationMutation, {
+                      projectId: childIterationInfo.projectId,
+                      itemId: childIterationInfo.itemId,
+                      fieldId: childIterationInfo.iterationFieldId,
+                      iterationId: parentIterationInfo.iteration.id
+                    });
+
+                    console.log(`✅ Iteration "${parentIterationInfo.iteration.title}" inherited from parent issue #${parentIssueNumber}`);
+                  } else {
+                    console.log('⚠️  Child issue not found in project or iteration field missing');
+                  }
+                } else {
+                  console.log('Parent issue has no iteration set');
+                }
               } catch (error) {
                 console.error(`Error fetching parent issue #${parentIssueNumber}:`, error.message);
               }
@@ -526,6 +650,7 @@ jobs:
             if (parentIssueNumber && !parentMilestone) {
               commentBody += `ℹ️ **Note**: Parent issue #${parentIssueNumber} has no milestone to inherit\n`;
             }
+            // Note: Iteration inheritance is handled above but not included in comment as it runs separately
             if (updatedDescendants.size > 0) {
               const descendantList = Array.from(updatedDescendants).map(n => `#${n}`).join(', ');
               commentBody += `\n🔄 **Cascaded Updates**: Milestone propagated to ${updatedDescendants.size} descendant(s): ${descendantList}\n`;

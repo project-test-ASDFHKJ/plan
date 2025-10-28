@@ -12,7 +12,7 @@ When you create an issue using one of the templates, the GitHub Action will auto
 - Set the "Type" field in the project board to match the issue type
 
 ### 2. Cascading Milestone & Iteration Inheritance
-Child issues automatically inherit **milestones** and **iterations** from their parent issues, and this inheritance **cascades down the entire hierarchy**:
+Child issues automatically inherit **milestones** and **iterations** from their parent issues on creation, and this inheritance **cascades down the entire hierarchy**:
 - **Task** → inherits from parent **Feature** or **User Story**
 - **User Story** → inherits from parent **Feature**
 - **Feature** → inherits from parent **Epic**
@@ -211,6 +211,7 @@ This workflow handles:
 - Setting issue types
 - Setting project board fields
 - Inheriting milestones from parents
+- **Inheriting iterations from parents** (automatic on issue creation)
 - Cascading milestone changes to descendants
 - **Validating estimates** before moving to "In Progress" status
 - **Auto-closing parent issues** when all children are closed
