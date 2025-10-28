@@ -11,13 +11,18 @@ When you create an issue using one of the templates, the GitHub Action will auto
 - Set the "Type" field in the project board to match the issue type
 - Add the corresponding label to the issue
 
-### 2. Milestone Inheritance
-Child issues automatically inherit milestones from their parent issues:
+### 2. Cascading Milestone Inheritance
+Child issues automatically inherit milestones from their parent issues, and this inheritance **cascades down the entire hierarchy**:
 - **Task** → inherits milestone from parent **Feature** or **User Story**
 - **User Story** → inherits milestone from parent **Feature**
 - **Feature** → inherits milestone from parent **Epic**
 
-This ensures consistent milestone tracking across your issue hierarchy.
+**Cascading behavior:** When you change a milestone on any issue, the automation will:
+1. Find all direct children (Features under an Epic, Stories under a Feature, Tasks under a Story)
+2. Recursively find all descendants (grandchildren, great-grandchildren, etc.)
+3. Update the milestone on ALL descendants automatically
+
+This ensures consistent milestone tracking across your entire issue hierarchy, no matter how deep.
 
 ## Setup Requirements
 
@@ -57,8 +62,20 @@ Create the following labels in your repository:
 ### 4. Enable GitHub Actions
 
 The workflow is located at `.github/workflows/issue-automation.yml` and will automatically run when:
-- A new issue is created
-- An existing issue is edited
+- A new issue is **created** (`opened`)
+- An existing issue is **edited** (`edited`)
+- An issue is **reopened** (`reopened`)
+- A milestone is **assigned** (`milestoned`)
+- A milestone is **removed** (`demilestoned`)
+- An issue is **assigned** to someone (`assigned`)
+- An issue is **unassigned** (`unassigned`)
+- A label is **added** (`labeled`)
+- A label is **removed** (`unlabeled`)
+
+This comprehensive set of triggers ensures that:
+- Type fields stay synchronized when issues are edited
+- Milestones cascade immediately when changed
+- All descendants update when a parent's milestone changes
 
 No additional configuration is needed - the workflow uses the default `GITHUB_TOKEN`.
 
@@ -108,16 +125,24 @@ Epic (#100) [Milestone: Q1 2025]
 
 ## Automation Details
 
-When an issue is created or edited, the workflow:
+When an issue is created, edited, or has a milestone changed, the workflow:
 
-1. **Detects Type** from title prefix
-2. **Finds Parent Issue** by parsing the issue body
+1. **Detects Type** from title prefix (`[EPIC]`, `[FEATURE]`, `[STORY]`, `[Task]`)
+2. **Finds Parent Issue** by parsing the issue body for parent references
 3. **Fetches Parent Milestone** if a parent is found
-4. **Sets Milestone** on the current issue
+4. **Sets Milestone** on the current issue (inherited from parent)
 5. **Adds to Project** if not already added
-6. **Updates Type Field** in the project
+6. **Updates Type Field** in the project board
 7. **Adds Label** matching the type
-8. **Posts Summary Comment** showing what was automated
+8. **Cascades Milestone Changes** recursively to ALL descendants:
+   - Searches all issues for those that reference this issue as a parent
+   - Updates each child's milestone
+   - Recursively updates grandchildren, great-grandchildren, etc.
+   - Prevents infinite loops by tracking already-updated issues
+9. **Posts Summary Comment** showing:
+   - Type assignment
+   - Milestone inheritance from parent
+   - List of all descendants updated with the new milestone
 
 ## Troubleshooting
 
@@ -164,13 +189,16 @@ const parentMatch = issueBody.match(/(?:Epic|Feature|Parent Feature|Parent Epic)
 ## Benefits
 
 - **Consistency**: Automatic type setting prevents manual errors
-- **Efficiency**: Save time by automating repetitive tasks
-- **Traceability**: Clear parent-child relationships with milestone inheritance
-- **Visibility**: Project boards stay up-to-date automatically
-- **Scalability**: Works seamlessly as your project grows
+- **Efficiency**: Save time by automating repetitive tasks - update one epic and cascade to hundreds of descendants
+- **Traceability**: Clear parent-child relationships with milestone inheritance at every level
+- **Visibility**: Project boards stay up-to-date automatically across the entire hierarchy
+- **Scalability**: Works seamlessly as your project grows - handles deep hierarchies without performance issues
+- **Reliability**: Prevents orphaned issues with different milestones from their parents
+- **Zero Maintenance**: Set it up once and let automation handle milestone synchronization forever
 
 ## Example Workflow
 
+### Initial Setup
 1. Create Epic #100: "User Authentication System" (assign Milestone: "v1.0")
 2. Create Feature #101: "[FEATURE] OAuth Integration" with `Epic: #100`
    - Automatically gets Milestone "v1.0"
@@ -181,5 +209,27 @@ const parentMatch = issueBody.match(/(?:Epic|Feature|Parent Feature|Parent Epic)
 4. Create Task #103: "[Task] Implement OAuth callback" with `Feature: #101`
    - Automatically gets Milestone "v1.0"
    - Type set to "Task"
+5. Create Task #104: "[Task] Add Google OAuth credentials" with `Feature: #101`
+   - Automatically gets Milestone "v1.0"
+   - Type set to "Task"
 
 All issues are automatically organized in your project board with proper types and milestones!
+
+### Cascading Updates Example
+Now, imagine you need to move the entire Epic to a different milestone:
+
+1. **Update Epic #100** milestone from "v1.0" to "v2.0"
+2. **Automation triggers** and finds all descendants:
+   - Feature #101 (direct child)
+   - Story #102 (grandchild via Feature #101)
+   - Task #103 (grandchild via Feature #101)
+   - Task #104 (grandchild via Feature #101)
+3. **All descendants are automatically updated** to milestone "v2.0"
+4. **Summary comment posted** on Epic #100:
+   ```
+   🤖 Automation Summary
+
+   🔄 Cascaded Updates: Milestone propagated to 4 descendant(s): #101, #102, #103, #104
+   ```
+
+This saves you from manually updating each issue individually - the entire hierarchy stays synchronized!

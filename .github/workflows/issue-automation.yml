@@ -2,7 +2,7 @@ name: Issue Automation
 
 on:
   issues:
-    types: [opened, edited]
+    types: [opened, edited, reopened, milestoned, demilestoned, assigned, unassigned, labeled, unlabeled]
 
 jobs:
   automate-issue:
@@ -32,6 +32,81 @@ jobs:
             const issueNumber = context.issue.number;
             const issueBody = context.payload.issue.body || '';
             const issueTitle = context.payload.issue.title || '';
+
+            // Function to find all child issues (issues that reference this issue as parent)
+            async function findChildIssues(parentNumber) {
+              const allIssues = [];
+              let page = 1;
+              let hasMore = true;
+
+              while (hasMore) {
+                const issues = await github.rest.issues.listForRepo({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  state: 'all',
+                  per_page: 100,
+                  page: page
+                });
+
+                if (issues.data.length === 0) {
+                  hasMore = false;
+                } else {
+                  allIssues.push(...issues.data);
+                  page++;
+                }
+              }
+
+              // Filter issues that reference this issue as parent
+              const children = allIssues.filter(issue => {
+                const body = issue.body || '';
+                const parentPattern = new RegExp(`(?:Epic|Feature|Parent Feature|Parent Epic):\\s*#${parentNumber}(?:\\s|$)`, 'i');
+                return parentPattern.test(body);
+              });
+
+              console.log(`Found ${children.length} child issue(s) of #${parentNumber}`);
+              return children;
+            }
+
+            // Function to recursively update all descendants with milestone
+            async function updateDescendantsMilestone(parentNumber, milestone, depth = 0, updatedIssues = new Set()) {
+              const indent = '  '.repeat(depth);
+              console.log(`${indent}Checking descendants of #${parentNumber}...`);
+
+              const children = await findChildIssues(parentNumber);
+
+              for (const child of children) {
+                // Avoid infinite loops
+                if (updatedIssues.has(child.number)) {
+                  console.log(`${indent}⏭️  Skipping #${child.number} (already processed)`);
+                  continue;
+                }
+
+                updatedIssues.add(child.number);
+
+                const currentMilestone = child.milestone ? child.milestone.number : null;
+                const targetMilestone = milestone ? milestone.number : null;
+
+                if (currentMilestone !== targetMilestone) {
+                  console.log(`${indent}📝 Updating #${child.number} milestone from "${child.milestone?.title || 'none'}" to "${milestone?.title || 'none'}"`);
+
+                  await github.rest.issues.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: child.number,
+                    milestone: targetMilestone
+                  });
+
+                  console.log(`${indent}✅ Updated #${child.number}`);
+                } else {
+                  console.log(`${indent}⏭️  #${child.number} already has correct milestone`);
+                }
+
+                // Recursively update grandchildren
+                await updateDescendantsMilestone(child.number, milestone, depth + 1, updatedIssues);
+              }
+
+              return updatedIssues;
+            }
 
             // Determine issue type from title prefix
             let issueType = null;
@@ -235,6 +310,22 @@ jobs:
               }
             }
 
+            // Cascade milestone updates to all descendants
+            const currentMilestone = context.payload.issue.milestone;
+            const actionType = context.payload.action;
+
+            let updatedDescendants = new Set();
+            if (['milestoned', 'demilestoned', 'edited'].includes(actionType)) {
+              console.log(`\n🔄 Cascading milestone changes to all descendants of #${issueNumber}...`);
+              updatedDescendants = await updateDescendantsMilestone(issueNumber, currentMilestone);
+
+              if (updatedDescendants.size > 0) {
+                console.log(`✅ Updated ${updatedDescendants.size} descendant issue(s) with milestone "${currentMilestone?.title || 'none'}"`);
+              } else {
+                console.log('ℹ️  No descendants found or all already up-to-date');
+              }
+            }
+
             // Create comment summarizing automation actions
             let commentBody = '### 🤖 Automation Summary\n\n';
             if (issueType) {
@@ -246,8 +337,12 @@ jobs:
             if (parentIssueNumber && !parentMilestone) {
               commentBody += `ℹ️ **Note**: Parent issue #${parentIssueNumber} has no milestone to inherit\n`;
             }
+            if (updatedDescendants.size > 0) {
+              const descendantList = Array.from(updatedDescendants).map(n => `#${n}`).join(', ');
+              commentBody += `\n🔄 **Cascaded Updates**: Milestone propagated to ${updatedDescendants.size} descendant(s): ${descendantList}\n`;
+            }
 
-            if (issueType || parentMilestone) {
+            if (issueType || parentMilestone || updatedDescendants.size > 0) {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
