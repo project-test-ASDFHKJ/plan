@@ -1,6 +1,6 @@
 # Burndown Report
 
-**Generated:** 2025-10-29 at 01:59:14 UTC
+**Generated:** 2025-10-30 at 01:58:30 UTC
 
 **Project:** [TEMPLATE] EngageMe
 
@@ -12,13 +12,13 @@
 <tr>
 <td><strong>Remaining Work</strong><br/>4h</td>
 <td><strong>Completed</strong><br/>99%</td>
-<td><strong>Average Burndown</strong><br/>15.8h/day</td>
+<td><strong>Average Burndown</strong><br/>15.1h/day</td>
 <td><strong>Total Scope</strong><br/>336h</td>
 </tr>
 </table>
 
 **Duration:** 2025-10-09 to 2025-10-30 (21 days)  
-**Progress:** Day 21 of 21 (1 days remaining)
+**Progress:** Day 22 of 21 (0 days remaining)
 
 ### Burndown Chart
 
@@ -29,7 +29,7 @@
 | Metric | Value |
 |--------|-------|
 | **Issues Closed** | 0 / 5 |
-| **Projected Completion** | 1 days (✅ On Track) |
+| **Projected Completion** | 1 days (⚠️ At Risk) |
 
 <details>
 <summary><strong>View All Issues (5)</strong></summary>
@@ -52,13 +52,13 @@
 <tr>
 <td><strong>Remaining Work</strong><br/>0h</td>
 <td><strong>Completed</strong><br/>0%</td>
-<td><strong>Average Burndown</strong><br/>0h/day</td>
+<td><strong>Average Burndown</strong><br/>0.0h/day</td>
 <td><strong>Total Scope</strong><br/>0h</td>
 </tr>
 </table>
 
 **Duration:** 2025-10-30 to 2025-11-20 (21 days)  
-**Progress:** Day 0 of 21 (22 days remaining)
+**Progress:** Day 1 of 21 (21 days remaining)
 
 ### Metrics
 
@@ -88,7 +88,7 @@
 </table>
 
 **Duration:** 2025-11-20 to 2025-12-11 (21 days)  
-**Progress:** Day 0 of 21 (43 days remaining)
+**Progress:** Day 0 of 21 (42 days remaining)
 
 ### Metrics
 
@@ -118,7 +118,7 @@
 </table>
 
 **Duration:** 2025-12-11 to 2026-01-01 (21 days)  
-**Progress:** Day 0 of 21 (64 days remaining)
+**Progress:** Day 0 of 21 (63 days remaining)
 
 ### Metrics
 
