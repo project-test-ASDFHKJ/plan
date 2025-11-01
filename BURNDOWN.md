@@ -1,6 +1,6 @@
 # Burndown Report
 
-**Generated:** 2025-10-31 at 01:55:13 UTC
+**Generated:** 2025-11-01 at 01:58:31 UTC
 
 **Project:** [TEMPLATE] EngageMe
 
@@ -18,7 +18,7 @@
 </table>
 
 **Duration:** 2025-10-30 to 2025-11-20 (21 days)  
-**Progress:** Day 2 of 21 (20 days remaining)
+**Progress:** Day 3 of 21 (19 days remaining)
 
 ### Burndown Chart
 
@@ -52,7 +52,7 @@
 </table>
 
 **Duration:** 2025-11-20 to 2025-12-11 (21 days)  
-**Progress:** Day 0 of 21 (41 days remaining)
+**Progress:** Day 0 of 21 (40 days remaining)
 
 ### Metrics
 
@@ -82,7 +82,7 @@
 </table>
 
 **Duration:** 2025-12-11 to 2026-01-01 (21 days)  
-**Progress:** Day 0 of 21 (62 days remaining)
+**Progress:** Day 0 of 21 (61 days remaining)
 
 ### Metrics
 
