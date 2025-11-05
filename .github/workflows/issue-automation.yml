@@ -37,42 +37,21 @@ jobs:
             async function findChildIssues(parentNumber) {
               console.log(`🔍 Looking for children of issue #${parentNumber}...`);
 
-              // Method 1: Check GitHub's native sub-issues
+              // Method 1: Check GitHub's native sub-issues using REST API
+              // GraphQL trackedIssues doesn't work, but REST API sub_issues does!
               try {
-                const graphqlQuery = `
-                  query($owner: String!, $repo: String!, $issueNumber: Int!) {
-                    repository(owner: $owner, name: $repo) {
-                      issue(number: $issueNumber) {
-                        trackedIssues(first: 100) {
-                          nodes {
-                            number
-                            title
-                            state
-                            milestone {
-                              number
-                              title
-                            }
-                            body
-                          }
-                        }
-                      }
-                    }
-                  }
-                `;
-
-                const result = await github.graphql(graphqlQuery, {
+                const response = await github.request('GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues', {
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  issueNumber: parentNumber
+                  issue_number: parentNumber
                 });
 
-                const trackedChildren = result.repository.issue.trackedIssues.nodes;
-                if (trackedChildren.length > 0) {
-                  console.log(`✅ Found ${trackedChildren.length} child issue(s) via native sub-issues`);
-                  return trackedChildren;
+                if (response.data && response.data.length > 0) {
+                  console.log(`✅ Found ${response.data.length} child issue(s) via REST API sub-issues`);
+                  return response.data;
                 }
               } catch (error) {
-                console.log(`⚠️  Could not query native sub-issues: ${error.message}`);
+                console.log(`⚠️  Could not get sub-issues from REST API: ${error.message}`);
               }
 
 
