@@ -304,7 +304,9 @@ jobs:
               issueType = 'Task';
             }
 
-                        console.log(`Issue #${issueNumber}: Type detected as "${issueType}"`);
+            if (issueType) {
+              console.log(`Issue #${issueNumber}: Type detected as "${issueType}"`);
+            }
 
             // Function to find parent issue using GitHub's native relationships
             async function findParentIssue(issueNum) {
