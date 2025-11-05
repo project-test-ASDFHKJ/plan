@@ -236,8 +236,8 @@ jobs:
               // We search for which issue tracks THIS issue.
               try {
                 const searchQuery = `
-                  {
-                    search(query: "repo:${context.repo.owner}/${context.repo.repo} is:issue tracked:${issueNum}", type: ISSUE, first: 1) {
+                  query($searchQuery: String!) {
+                    search(query: $searchQuery, type: ISSUE, first: 1) {
                       nodes {
                         ... on Issue {
                           number
@@ -257,7 +257,9 @@ jobs:
                   }
                 `;
 
-                const result = await github.graphql(searchQuery);
+                const result = await github.graphql(searchQuery, {
+                  searchQuery: `repo:${context.repo.owner}/${context.repo.repo} is:issue tracked:${issueNum}`
+                });
                 const parent = result.search.nodes[0];
                 if (parent) {
                   console.log(`✅ Parent found via native sub-issues: #${parent.number}`);
