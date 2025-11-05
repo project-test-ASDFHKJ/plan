@@ -231,6 +231,67 @@ jobs:
               return updatedIssues;
             }
 
+            // Function to recursively update all descendants with label changes
+            async function updateDescendantsLabels(parentNumber, labelName, operation, depth = 0, updatedIssues = new Set()) {
+              const indent = '  '.repeat(depth);
+              console.log(`${indent}Checking descendants of #${parentNumber} for label ${operation}...`);
+
+              const children = await findChildIssues(parentNumber);
+
+              for (const child of children) {
+                // Avoid infinite loops
+                if (updatedIssues.has(child.number)) {
+                  console.log(`${indent}⏭️  Skipping #${child.number} (already processed)`);
+                  continue;
+                }
+
+                updatedIssues.add(child.number);
+
+                try {
+                  if (operation === 'add') {
+                    // Check if child already has the label
+                    const childIssue = await github.rest.issues.get({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: child.number
+                    });
+
+                    const hasLabel = childIssue.data.labels.some(l => l.name === labelName);
+
+                    if (!hasLabel) {
+                      console.log(`${indent}🏷️  Adding label "${labelName}" to #${child.number}`);
+                      await github.rest.issues.addLabels({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: child.number,
+                        labels: [labelName]
+                      });
+                      console.log(`${indent}✅ Added label to #${child.number}`);
+                    } else {
+                      console.log(`${indent}⏭️  #${child.number} already has label "${labelName}"`);
+                    }
+                  } else if (operation === 'remove') {
+                    console.log(`${indent}🗑️  Removing label "${labelName}" from #${child.number}`);
+                    await github.rest.issues.removeLabel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: child.number,
+                      name: labelName
+                    });
+                    console.log(`${indent}✅ Removed label from #${child.number}`);
+                  }
+                } catch (error) {
+                  // Ignore errors (label might not exist, etc.)
+                  console.log(`${indent}⚠️  Could not ${operation} label on #${child.number}: ${error.message}`);
+                }
+
+                // Recursively update grandchildren
+                await updateDescendantsLabels(child.number, labelName, operation, depth + 1, updatedIssues);
+              }
+
+              return updatedIssues;
+            }
+
             // Determine issue type from title prefix
             let issueType = null;
             if (issueTitle.startsWith('[EPIC]')) {
@@ -907,6 +968,37 @@ jobs:
                 console.log(`✅ Updated ${updatedDescendants.size} descendant issue(s) with milestone "${currentMilestone?.title || 'none'}"`);
               } else {
                 console.log('ℹ️  No descendants found or all already up-to-date');
+              }
+            }
+
+            // ========================================
+            // Cascade label changes to all descendants
+            // ========================================
+
+            if (['labeled', 'unlabeled'].includes(actionType)) {
+              console.log(`\n🏷️  Cascading label changes to all descendants of #${issueNumber}...`);
+
+              let labelOperation = '';
+              let labelName = '';
+
+              if (actionType === 'labeled') {
+                labelOperation = 'add';
+                labelName = context.payload.label.name;
+                console.log(`Label "${labelName}" was added to parent #${issueNumber}`);
+              } else if (actionType === 'unlabeled') {
+                labelOperation = 'remove';
+                labelName = context.payload.label.name;
+                console.log(`Label "${labelName}" was removed from parent #${issueNumber}`);
+              }
+
+              if (labelName) {
+                const updatedDescendantsLabels = await updateDescendantsLabels(issueNumber, labelName, labelOperation);
+
+                if (updatedDescendantsLabels.size > 0) {
+                  console.log(`✅ ${labelOperation === 'add' ? 'Added' : 'Removed'} label "${labelName}" ${labelOperation === 'add' ? 'to' : 'from'} ${updatedDescendantsLabels.size} descendant issue(s)`);
+                } else {
+                  console.log('ℹ️  No descendants found or all already up-to-date');
+                }
               }
             }
 
