@@ -75,39 +75,6 @@ jobs:
                 console.log(`⚠️  Could not query native sub-issues: ${error.message}`);
               }
 
-              // Method 2: Fall back to description parsing
-              console.log('🔄 Falling back to description parsing...');
-              const allIssues = [];
-              let page = 1;
-              let hasMore = true;
-
-              while (hasMore) {
-                const issues = await github.rest.issues.listForRepo({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  state: 'all',
-                  per_page: 100,
-                  page: page
-                });
-
-                if (issues.data.length === 0) {
-                  hasMore = false;
-                } else {
-                  allIssues.push(...issues.data);
-                  page++;
-                }
-              }
-
-              const children = allIssues.filter(issue => {
-                const body = issue.body || '';
-                const bodyWithoutComments = body.replace(/<!--[\s\S]*?-->/g, '');
-                const parentPattern = new RegExp(`(?:Epic|Feature|Parent Feature|Parent Epic):\\s*#${parentNumber}(?:\\s|$)`, 'i');
-                return parentPattern.test(bodyWithoutComments);
-              });
-
-              console.log(`Found ${children.length} child issue(s) via description parsing`);
-              return children;
-            }
 
               // Method 2: Fall back to description parsing
               console.log('🔄 Falling back to description parsing...');
@@ -143,54 +110,6 @@ jobs:
               return children;
             }
 
-              // Method 2: Fall back to description parsing
-              console.log('🔄 Falling back to description parsing...');
-              const allIssues = [];
-              let page = 1;
-              let hasMore = true;
-
-              while (hasMore) {
-                const issues = await github.rest.issues.listForRepo({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  state: 'all',
-                  per_page: 100,
-                  page: page
-                });
-
-                if (issues.data.length === 0) {
-                  hasMore = false;
-                } else {
-                  allIssues.push(...issues.data);
-                  page++;
-                }
-              }
-
-              const children = allIssues.filter(issue => {
-                const body = issue.body || '';
-                const bodyWithoutComments = body.replace(/<!--[\s\S]*?-->/g, '');
-                const parentPattern = new RegExp(`(?:Epic|Feature|Parent Feature|Parent Epic):\\s*#${parentNumber}(?:\\s|$)`, 'i');
-                return parentPattern.test(bodyWithoutComments);
-              });
-
-              console.log(`Found ${children.length} child issue(s) via description parsing`);
-              return children;
-            }
-
-              // Filter issues that reference this issue as parent
-              const children = allIssues.filter(issue => {
-                const body = issue.body || '';
-                // Remove HTML comments to avoid matching examples
-                const bodyWithoutComments = body.replace(/<!--[\s\S]*?-->/g, '');
-                const parentPattern = new RegExp(`(?:Epic|Feature|Parent Feature|Parent Epic):\\s*#${parentNumber}(?:\\s|$)`, 'i');
-                return parentPattern.test(bodyWithoutComments);
-              });
-
-              console.log(`Found ${children.length} child issue(s) of #${parentNumber}`);
-              return children;
-            }
-
-            // Function to recursively update all descendants with milestone
             async function updateDescendantsMilestone(parentNumber, milestone, depth = 0, updatedIssues = new Set()) {
               const indent = '  '.repeat(depth);
               console.log(`${indent}Checking descendants of #${parentNumber}...`);
