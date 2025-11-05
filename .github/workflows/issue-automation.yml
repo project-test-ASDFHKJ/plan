@@ -641,22 +641,6 @@ jobs:
             }
 
             // Create comment summarizing automation actions
-            let commentBody = '### 🤖 Automation Summary\n\n';
-            if (issueType) {
-              commentBody += `✅ **Type**: Set to \`${issueType}\`\n`;
-            }
-            if (parentMilestone) {
-              commentBody += `✅ **Milestone**: Inherited \`${parentMilestone.title}\` from parent issue #${parentIssueNumber}\n`;
-            }
-            if (parentIssueNumber && !parentMilestone) {
-              commentBody += `ℹ️ **Note**: Parent issue #${parentIssueNumber} has no milestone to inherit\n`;
-            }
-            // Note: Iteration inheritance is handled above but not included in comment as it runs separately
-            if (updatedDescendants.size > 0) {
-              const descendantList = Array.from(updatedDescendants).map(n => `#${n}`).join(', ');
-              commentBody += `\n🔄 **Cascaded Updates**: Milestone propagated to ${updatedDescendants.size} descendant(s): ${descendantList}\n`;
-            }
-
 
             // ========================================
             // Auto-Close/Reopen Parent Issues
