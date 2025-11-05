@@ -595,13 +595,6 @@ jobs:
                         labels: ['needs-estimate']
                       });
 
-                      // Post warning comment
-                      await github.rest.issues.createComment({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        issue_number: issueNumber,
-                        body: `### ⚠️ Validation Warning\n\nThis issue is marked as **In Progress** but has **no Estimate** set.\n\n**Action required:** Please add an estimate (in hours or story points) to the project board before continuing work.\n\n*Label \`needs-estimate\` has been added. Remove it after setting the estimate.*`
-                      });
 
                       console.log('✅ Added needs-estimate label and warning comment');
                     } else if (statusValue === 'In Progress' && estimateValue > 0) {
@@ -664,14 +657,6 @@ jobs:
               commentBody += `\n🔄 **Cascaded Updates**: Milestone propagated to ${updatedDescendants.size} descendant(s): ${descendantList}\n`;
             }
 
-            if (issueType || parentMilestone || updatedDescendants.size > 0) {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber,
-                body: commentBody
-              });
-            }
 
             // ========================================
             // Auto-Close/Reopen Parent Issues
@@ -746,12 +731,6 @@ jobs:
                     state_reason: 'completed'
                   });
 
-                  await github.rest.issues.createComment({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: parentNumber,
-                    body: `### 🔒 Auto-Closed\n\nAll ${allChildren.length} child issue(s) have been completed:\n${allChildren.map(c => `- #${c.number} (${c.title})`).join('\n')}\n\n*Automatically closed by workflow*`
-                  });
 
                   actionTaken = true;
                 }
@@ -768,12 +747,6 @@ jobs:
                   });
 
                   const openChildren = allChildren.filter(c => c.state === 'open');
-                  await github.rest.issues.createComment({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: parentNumber,
-                    body: `### 🔓 Auto-Reopened\n\n${openChildren.length} child issue(s) are still open:\n${openChildren.map(c => `- #${c.number} (${c.title})`).join('\n')}\n\n*Automatically reopened by workflow*`
-                  });
 
                   actionTaken = true;
                 }

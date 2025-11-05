@@ -42,6 +42,30 @@ Parent issues automatically calculate their **Estimate** and **Remaining** work 
 - Real-time progress tracking across the entire hierarchy
 - Perfect for sprint planning and burndown charts
 
+#### 3.1 Manual Rollup via 'sync' Label
+
+While rollup happens automatically every 5 minutes, you can trigger an **immediate rollup** by adding the `sync` label to any issue:
+
+**How to use:**
+1. **Via GitHub UI:** 
+   - Open any issue
+   - Add the 'sync' label from the labels dropdown
+   - Workflow triggers immediately and updates all parent issues
+   - Label is automatically removed when complete
+
+2. **Via GitHub CLI:**
+   ```bash
+   gh issue edit <issue_number> --add-label "sync"
+   ```
+
+**Use cases:**
+- You just updated estimates and want immediate visibility
+- Planning meetings where you need current data
+- Demo situations where 5-minute delay is too long
+- Testing your hierarchy setup
+
+**Note:** The scheduled rollup (every 5 minutes) continues to work automatically. The 'sync' label provides an on-demand alternative.
+
 ### 4. Auto-Close/Reopen Parent Issues
 Parent issues automatically close when all children are completed, and reopen if any child is reopened:
 - When you close the last child Task/Story, the parent Feature automatically closes
@@ -64,7 +88,6 @@ Parent issues automatically close when all children are completed, and reopen if
 Tasks and User Stories are validated before moving to "In Progress" status:
 - If Status is set to "In Progress" but Estimate is 0 or missing, a warning is triggered
 - A `needs-estimate` label is automatically added
-- A warning comment is posted explaining the issue
 - The label is removed once an estimate is set
 
 **Key benefits:**
@@ -382,10 +405,6 @@ When an issue is created, edited, or has a milestone changed:
    - Updates each child's milestone
    - Recursively updates grandchildren, great-grandchildren, etc.
    - Prevents infinite loops by tracking already-updated issues
-9. **Posts Summary Comment** showing:
-   - Issue type assignment
-   - Milestone inheritance from parent
-   - List of all descendants updated with the new milestone
 
 ### Rollup Estimates Workflow
 
@@ -400,7 +419,6 @@ When a project item's Estimate or Remaining field is updated:
    - Sum of all children's Estimate values
    - Sum of all children's Remaining values
 7. **Updates parent's fields** in the project with the totals
-8. **Posts comment on parent** showing breakdown by child
 9. **Recursively updates ancestors**:
    - Finds grandparent and repeats the process
    - Continues up the hierarchy to the root Epic
@@ -540,9 +558,6 @@ Now, imagine you need to move the entire Epic to a different milestone:
    - Task #103 (grandchild via Feature #101)
    - Task #104 (grandchild via Feature #101)
 3. **All descendants are automatically updated** to milestone "v2.0"
-4. **Summary comment posted** on Epic #100:
-   ```
-   🤖 Automation Summary
 
    🔄 Cascaded Updates: Milestone propagated to 4 descendant(s): #101, #102, #103, #104
    ```
@@ -561,9 +576,6 @@ This saves you from manually updating each issue individually - the entire hiera
    - Feature #101, #102
    - Story #103, #104
    - Task #105, #106
-4. **Comment posted** on Epic #100 showing all updated issues
-
-### Estimate Rollup Example (Bottom-Up)
 
 **Important:** Always trigger the rollup from the **Task level** (the child that was updated), not the parent!
 
@@ -593,7 +605,6 @@ This saves you from manually updating each issue individually - the entire hiera
 4. **Results**:
    - Feature #101 shows the **sum** of all its child Tasks
    - Epic #100 shows the **sum** of all its child Features
-   - Comments posted on each parent showing the detailed breakdown
 
 #### Example with Multiple Tasks:
 

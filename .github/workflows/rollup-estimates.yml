@@ -12,6 +12,10 @@ on:
 
 jobs:
   rollup-to-parents:
+    # Only run if manually triggered OR if 'sync' label was added
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'sync')
     runs-on: ubuntu-latest
     permissions:
       issues: write
@@ -45,6 +49,15 @@ jobs:
             } else {
               console.log('❌ Unknown trigger type');
               return;
+            }
+
+            // Check if triggered by sync label
+            if (context.eventName === 'issues' && context.payload.action === 'labeled') {
+              if (context.payload.label.name !== 'sync') {
+                console.log(`⏭️  Skipping - label "${context.payload.label.name}" is not "sync"`);
+                return;
+              }
+              console.log('✅ Triggered by "sync" label');
             }
 
             // Get issue details
@@ -322,13 +335,6 @@ jobs:
                 );
                 console.log(`${indent}✅ Updated Remaining to ${sums.totalRemaining}`);
 
-                // Post comment on parent
-                await github.rest.issues.createComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: parentNumber,
-                  body: `### 📊 Rollup Update\n\n**Estimate**: ${sums.totalEstimate} (sum of ${sums.childCount} children)\n**Remaining**: ${sums.totalRemaining}\n\n**Children:**\n${sums.childDetails.map(c => `- #${c.number}: Estimate=${c.estimate}, Remaining=${c.remaining}`).join('\n')}\n\n*Automatically calculated from child issues*`
-                });
 
               } catch (error) {
                 console.error(`${indent}Error updating parent:`, error.message);
@@ -358,3 +364,18 @@ jobs:
             await updateParentChain(parentIssueNumber);
 
             console.log('✅ Rollup complete!');
+
+            // Remove the sync label after successful completion
+            if (context.eventName === 'issues' && context.payload.action === 'labeled' && context.payload.label.name === 'sync') {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber,
+                  name: 'sync'
+                });
+                console.log('✅ Removed "sync" label - workflow can be re-triggered');
+              } catch (error) {
+                console.log('⚠️  Could not remove sync label:', error.message);
+              }
+            }

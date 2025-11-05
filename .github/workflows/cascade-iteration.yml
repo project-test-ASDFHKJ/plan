@@ -296,15 +296,6 @@ jobs:
 
             if (updatedDescendants.size > 0) {
               console.log(`✅ Updated ${updatedDescendants.size} descendant issue(s) with iteration "${iteration?.title || 'none'}"`);
-
-              // Post comment on parent
-              const descendantList = Array.from(updatedDescendants).map(n => `#${n}`).join(', ');
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber,
-                body: `### 🔄 Iteration Cascade\n\n**Iteration**: ${iteration?.title || 'Cleared'}\n\n**Updated descendants** (${updatedDescendants.size}): ${descendantList}\n\n*Automatically propagated to all child issues*`
-              });
             } else {
               console.log('ℹ️  No descendants found or all already up-to-date');
             }

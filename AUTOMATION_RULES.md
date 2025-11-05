@@ -28,13 +28,13 @@ Complete list of all automated rules and workflows for the project management sy
   - When ALL children close → parent automatically closes
   - When ANY child reopens → parent automatically reopens
   - Cascades up entire hierarchy recursively
-  - Posts summary comment on parent
+
 
 - ✅ **Estimate Validation**
   - Applies to: Task and User Story types only
   - If Status = "In Progress" AND Estimate = 0:
     - Adds `needs-estimate` label
-    - Posts warning comment
+
   - Removes label once estimate is set
 
 ---
@@ -56,15 +56,16 @@ Complete list of all automated rules and workflows for the project management sy
 ---
 
 ### 3. **Manual Rollup** (`.github/workflows/rollup-estimates.yml`)
-**Triggers:** Manual workflow dispatch
+**Triggers:** Manual workflow dispatch  OR 'sync' label added to issue
 
 **Rules:**
 - ✅ **Single-Issue Rollup (Bottom-Up)**
-  - Trigger from specific child issue
+  - Trigger from specific child issue (via workflow dispatch or 'sync' label)
   - Calculates parent totals
   - Recursively updates entire ancestor chain
-  - Posts detailed breakdown comment on each parent
-  - Useful for immediate updates (legacy/backup)
+
+  - 'sync' label automatically removed after completion
+  - Useful for immediate updates (alternative to scheduled rollup)
 
 ---
 
@@ -75,7 +76,7 @@ Complete list of all automated rules and workflows for the project management sy
 - ✅ **Iteration Inheritance (Top-Down Cascade)**
   - When parent iteration changes, cascade to ALL descendants
   - Recursively updates grandchildren, great-grandchildren, etc.
-  - Posts summary comment on parent with updated issue list
+ with updated issue list
   - **Note:** Must be triggered manually after setting parent iteration
 
 **Manual Trigger:**
@@ -114,6 +115,7 @@ gh workflow run cascade-iteration.yml -f issue_number=18
 | **Milestone Changed** | Cascade to ALL descendants |
 | **Every 5 Minutes** | Estimate rollup (all parents), Burndown report generation |
 | **Manual** | Single-issue rollup, Manual iteration cascade (for bulk updates), Burndown generation |
+| **'sync' Label Added** | Immediate rollup to parents (alternative to manual workflow dispatch) |
 
 ---
 
@@ -158,6 +160,7 @@ gh workflow run cascade-iteration.yml -f issue_number=18
 | Label | When Added | When Removed |
 |-------|-----------|-------------|
 | `needs-estimate` | Task/Story moves to "In Progress" without Estimate | Estimate is set |
+| `sync` | Manually added by user to trigger immediate rollup | Automatically after workflow completes |
 
 ---
 
@@ -196,6 +199,10 @@ gh workflow run cascade-iteration.yml -f issue_number=18
   ```
   **Note:** New issues automatically inherit iteration, but this is useful for bulk updates
 - ⚡ **Immediate rollup** - For urgent updates:
+  ```bash
+  gh issue edit <issue_number> --add-label "sync"
+  ```
+  Or add the 'sync' label via GitHub UI - workflow triggers automatically and removes label when done
   ```bash
   gh workflow run rollup-estimates.yml -f issue_number=<child_issue_number>
   ```
