@@ -231,20 +231,24 @@ jobs:
             async function findParentIssue(issueNum) {
               console.log(`🔍 Looking for parent of issue #${issueNum}...`);
 
-              // Method 1: Check GitHub's native sub-issues (trackedInIssues)
+              // Method 1: Check GitHub's native sub-issues
+              // Note: trackedIssues returns CHILDREN, not parents.
+              // We search for which issue tracks THIS issue.
               try {
-                const graphqlQuery = `
-                  query($owner: String!, $repo: String!, $issueNumber: Int!) {
-                    repository(owner: $owner, name: $repo) {
-                      issue(number: $issueNumber) {
-                        number
-                        trackedInIssues(first: 1) {
-                          nodes {
+                const searchQuery = `
+                  {
+                    search(query: "repo:${context.repo.owner}/${context.repo.repo} is:issue tracked:${issueNum}", type: ISSUE, first: 1) {
+                      nodes {
+                        ... on Issue {
+                          number
+                          title
+                          milestone {
                             number
                             title
-                            milestone {
-                              number
-                              title
+                          }
+                          labels(first: 20) {
+                            nodes {
+                              name
                             }
                           }
                         }
@@ -253,22 +257,18 @@ jobs:
                   }
                 `;
 
-                const result = await github.graphql(graphqlQuery, {
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issueNumber: issueNum
-                });
-
-                const parent = result.repository.issue.trackedInIssues.nodes[0];
+                const result = await github.graphql(searchQuery);
+                const parent = result.search.nodes[0];
                 if (parent) {
-                  console.log(`✅ Parent found via sub-issues: #${parent.number} (${parent.title})`);
+                  console.log(`✅ Parent found via native sub-issues: #${parent.number}`);
                   return {
                     number: parent.number,
-                    milestone: parent.milestone
+                    milestone: parent.milestone,
+                    labels: parent.labels.nodes || []
                   };
                 }
               } catch (error) {
-                console.log(`⚠️  Could not query sub-issues: ${error.message}`);
+                console.log(`⚠️  Could not search for parent: ${error.message}`);
               }
 
               // Method 2: Fall back to description parsing
