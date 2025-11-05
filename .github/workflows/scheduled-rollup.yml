@@ -27,10 +27,11 @@ jobs:
             console.log('=====================================');
 
             // Function to get all project fields for an issue
-            async function getProjectFields(issueNumber) {
+            // Supports cross-repo by accepting owner/repo parameters
+            async function getProjectFields(issueNumber, owner = context.repo.owner, repo = context.repo.repo) {
               const issue = await github.rest.issues.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
+                owner: owner,
+                repo: repo,
                 issue_number: issueNumber
               });
 
@@ -203,7 +204,8 @@ jobs:
                 const children = response.data;
                 if (children && children.length > 0) {
                   console.log(`✅ Issue #${issue.number} has ${children.length} children: ${children.map(c => c.number).join(', ')}`);
-                  parentChildMap.set(issue.number, children.map(c => c.number));
+                  // Store full child objects to preserve repository info for cross-repo support
+                  parentChildMap.set(issue.number, children);
                   for (const child of children) {
                     childParentMap.set(child.number, issue.number);
                   }
@@ -234,8 +236,13 @@ jobs:
               let totalRemaining = 0;
               const childDetails = [];
 
-              for (const childNumber of children) {
-                const projectFields = await getProjectFields(childNumber);
+              for (const child of children) {
+                // Extract repository info for cross-repo support
+                const childOwner = child.repository?.owner?.login || context.repo.owner;
+                const childRepo = child.repository?.name || context.repo.repo;
+                const childNumber = child.number;
+
+                const projectFields = await getProjectFields(childNumber, childOwner, childRepo);
 
                 if (projectFields && projectFields.fields) {
                   const estimate = projectFields.fields['Estimate']?.value || 0;
@@ -244,14 +251,16 @@ jobs:
                   totalEstimate += estimate;
                   totalRemaining += remaining;
 
+                  const repoLabel = childRepo !== context.repo.repo ? `${childRepo}#${childNumber}` : `#${childNumber}`;
                   childDetails.push({
                     number: childNumber,
+                    repo: childRepo,
                     estimate: estimate,
                     remaining: remaining
                   });
 
                   if (estimate > 0 || remaining > 0) {
-                    console.log(`  #${childNumber}: Estimate=${estimate}, Remaining=${remaining}`);
+                    console.log(`  ${repoLabel}: Estimate=${estimate}, Remaining=${remaining}`);
                   }
                 }
               }
