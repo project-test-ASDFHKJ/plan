@@ -174,23 +174,57 @@ jobs:
 
             console.log(`Found ${allIssues.length} total issues`);
 
-            // Build parent-child relationships
+            // Build parent-child relationships using GitHub's native sub-issues
             const parentChildMap = new Map();
             const childParentMap = new Map();
 
+            console.log('Building parent-child relationships using native sub-issues...');
+
+            // For each issue, check if it has sub-issues (children)
             for (const issue of allIssues) {
-              const body = issue.body || '';
-              const bodyWithoutComments = body.replace(/<!--[\s\S]*?-->/g, '');
-              const parentMatch = bodyWithoutComments.match(/(?:Epic|Feature|Parent Feature|Parent Epic):\s*#(\d+)/i);
+              try {
+                const graphqlQuery = `
+                  query($owner: String!, $repo: String!, $issueNumber: Int!) {
+                    repository(owner: $owner, name: $repo) {
+                      issue(number: $issueNumber) {
+                        trackedIssues(first: 100) {
+                          nodes {
+                            number
+                          }
+                        }
+                      }
+                    }
+                  }
+                `;
 
-              if (parentMatch) {
-                const parentNumber = parseInt(parentMatch[1]);
-                childParentMap.set(issue.number, parentNumber);
+                const result = await github.graphql(graphqlQuery, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issueNumber: issue.number
+                });
 
-                if (!parentChildMap.has(parentNumber)) {
-                  parentChildMap.set(parentNumber, []);
+                const children = result.repository.issue.trackedIssues.nodes;
+                if (children.length > 0) {
+                  parentChildMap.set(issue.number, children.map(c => c.number));
+                  for (const child of children) {
+                    childParentMap.set(child.number, issue.number);
+                  }
                 }
-                parentChildMap.get(parentNumber).push(issue.number);
+              } catch (error) {
+                // If GraphQL fails, fall back to description parsing for this issue
+                const body = issue.body || '';
+                const bodyWithoutComments = body.replace(/<!--[\s\S]*?-->/g, '');
+                const parentMatch = bodyWithoutComments.match(/(?:Epic|Feature|Parent Feature|Parent Epic):\s*#(\d+)/i);
+
+                if (parentMatch) {
+                  const parentNumber = parseInt(parentMatch[1]);
+                  childParentMap.set(issue.number, parentNumber);
+
+                  if (!parentChildMap.has(parentNumber)) {
+                    parentChildMap.set(parentNumber, []);
+                  }
+                  parentChildMap.get(parentNumber).push(issue.number);
+                }
               }
             }
 

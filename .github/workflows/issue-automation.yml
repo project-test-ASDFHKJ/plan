@@ -35,6 +35,48 @@ jobs:
 
             // Function to find all child issues (issues that reference this issue as parent)
             async function findChildIssues(parentNumber) {
+              console.log(`🔍 Looking for children of issue #${parentNumber}...`);
+
+              // Method 1: Check GitHub's native sub-issues
+              try {
+                const graphqlQuery = `
+                  query($owner: String!, $repo: String!, $issueNumber: Int!) {
+                    repository(owner: $owner, name: $repo) {
+                      issue(number: $issueNumber) {
+                        trackedIssues(first: 100) {
+                          nodes {
+                            number
+                            title
+                            state
+                            milestone {
+                              number
+                              title
+                            }
+                            body
+                          }
+                        }
+                      }
+                    }
+                  }
+                `;
+
+                const result = await github.graphql(graphqlQuery, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issueNumber: parentNumber
+                });
+
+                const trackedChildren = result.repository.issue.trackedIssues.nodes;
+                if (trackedChildren.length > 0) {
+                  console.log(`✅ Found ${trackedChildren.length} child issue(s) via native sub-issues`);
+                  return trackedChildren;
+                }
+              } catch (error) {
+                console.log(`⚠️  Could not query native sub-issues: ${error.message}`);
+              }
+
+              // Method 2: Fall back to description parsing
+              console.log('🔄 Falling back to description parsing...');
               const allIssues = [];
               let page = 1;
               let hasMore = true;
@@ -55,6 +97,85 @@ jobs:
                   page++;
                 }
               }
+
+              const children = allIssues.filter(issue => {
+                const body = issue.body || '';
+                const bodyWithoutComments = body.replace(/<!--[\s\S]*?-->/g, '');
+                const parentPattern = new RegExp(`(?:Epic|Feature|Parent Feature|Parent Epic):\\s*#${parentNumber}(?:\\s|$)`, 'i');
+                return parentPattern.test(bodyWithoutComments);
+              });
+
+              console.log(`Found ${children.length} child issue(s) via description parsing`);
+              return children;
+            }
+
+              // Method 2: Fall back to description parsing
+              console.log('🔄 Falling back to description parsing...');
+              const allIssues = [];
+              let page = 1;
+              let hasMore = true;
+
+              while (hasMore) {
+                const issues = await github.rest.issues.listForRepo({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  state: 'all',
+                  per_page: 100,
+                  page: page
+                });
+
+                if (issues.data.length === 0) {
+                  hasMore = false;
+                } else {
+                  allIssues.push(...issues.data);
+                  page++;
+                }
+              }
+
+              const children = allIssues.filter(issue => {
+                const body = issue.body || '';
+                const bodyWithoutComments = body.replace(/<!--[\s\S]*?-->/g, '');
+                const parentPattern = new RegExp(`(?:Epic|Feature|Parent Feature|Parent Epic):\\s*#${parentNumber}(?:\\s|$)`, 'i');
+                return parentPattern.test(bodyWithoutComments);
+              });
+
+              console.log(`Found ${children.length} child issue(s) via description parsing`);
+              return children;
+            }
+
+              // Method 2: Fall back to description parsing
+              console.log('🔄 Falling back to description parsing...');
+              const allIssues = [];
+              let page = 1;
+              let hasMore = true;
+
+              while (hasMore) {
+                const issues = await github.rest.issues.listForRepo({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  state: 'all',
+                  per_page: 100,
+                  page: page
+                });
+
+                if (issues.data.length === 0) {
+                  hasMore = false;
+                } else {
+                  allIssues.push(...issues.data);
+                  page++;
+                }
+              }
+
+              const children = allIssues.filter(issue => {
+                const body = issue.body || '';
+                const bodyWithoutComments = body.replace(/<!--[\s\S]*?-->/g, '');
+                const parentPattern = new RegExp(`(?:Epic|Feature|Parent Feature|Parent Epic):\\s*#${parentNumber}(?:\\s|$)`, 'i');
+                return parentPattern.test(bodyWithoutComments);
+              });
+
+              console.log(`Found ${children.length} child issue(s) via description parsing`);
+              return children;
+            }
 
               // Filter issues that reference this issue as parent
               const children = allIssues.filter(issue => {
@@ -122,30 +243,94 @@ jobs:
               issueType = 'Task';
             }
 
-            console.log(`Issue #${issueNumber}: Type detected as "${issueType}"`);
+                        console.log(`Issue #${issueNumber}: Type detected as "${issueType}"`);
 
-            // Remove HTML comments from body to avoid matching examples
-            const bodyWithoutComments = issueBody.replace(/<!--[\s\S]*?-->/g, '');
+            // Function to find parent issue using GitHub's native relationships
+            async function findParentIssue(issueNum) {
+              console.log(`🔍 Looking for parent of issue #${issueNum}...`);
 
-            // Extract parent issue reference
-            const parentMatch = bodyWithoutComments.match(/(?:Epic|Feature|Parent Feature|Parent Epic):\s*#(\d+)/i);
-            let parentIssueNumber = null;
-            let parentMilestone = null;
-
-            if (parentMatch) {
-              parentIssueNumber = parseInt(parentMatch[1]);
-              console.log(`Parent issue reference found: #${parentIssueNumber}`);
-
-              // Get parent issue details to inherit milestone
+              // Method 1: Check GitHub's native sub-issues (trackedInIssues)
               try {
+                const graphqlQuery = `
+                  query($owner: String!, $repo: String!, $issueNumber: Int!) {
+                    repository(owner: $owner, name: $repo) {
+                      issue(number: $issueNumber) {
+                        number
+                        trackedInIssues(first: 1) {
+                          nodes {
+                            number
+                            title
+                            milestone {
+                              number
+                              title
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                `;
+
+                const result = await github.graphql(graphqlQuery, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issueNumber: issueNum
+                });
+
+                const parent = result.repository.issue.trackedInIssues.nodes[0];
+                if (parent) {
+                  console.log(`✅ Parent found via sub-issues: #${parent.number} (${parent.title})`);
+                  return {
+                    number: parent.number,
+                    milestone: parent.milestone
+                  };
+                }
+              } catch (error) {
+                console.log(`⚠️  Could not query sub-issues: ${error.message}`);
+              }
+
+              // Method 2: Fall back to description parsing
+              console.log('Checking issue description for parent reference...');
+              const issue = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNum
+              });
+
+              const bodyWithoutComments = (issue.data.body || '').replace(/<!--[\s\S]*?-->/g, '');
+              const parentMatch = bodyWithoutComments.match(/(?:Epic|Feature|Parent Feature|Parent Epic):\s*#(\d+)/i);
+
+              if (parentMatch) {
+                const parentNum = parseInt(parentMatch[1]);
+                console.log(`✅ Parent found via description: #${parentNum}`);
+
                 const parentIssue = await github.rest.issues.get({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  issue_number: parentIssueNumber
+                  issue_number: parentNum
                 });
 
-                if (parentIssue.data.milestone) {
-                  parentMilestone = parentIssue.data.milestone;
+                return {
+                  number: parentNum,
+                  milestone: parentIssue.data.milestone
+                };
+              }
+
+              console.log('ℹ️  No parent issue found');
+              return null;
+            }
+
+            // Find parent issue
+            let parentIssueNumber = null;
+            let parentMilestone = null;
+
+            try {
+              const parent = await findParentIssue(issueNumber);
+              if (parent) {
+                parentIssueNumber = parent.number;
+                parentMilestone = parent.milestone;
+
+                if (parentMilestone) {
                   console.log(`Parent milestone found: ${parentMilestone.title}`);
 
                   // Set milestone on current issue
@@ -160,11 +345,9 @@ jobs:
                 } else {
                   console.log('Parent issue has no milestone set');
                 }
-              } catch (error) {
-                console.error(`Error fetching parent issue #${parentIssueNumber}:`, error.message);
               }
-            } else {
-              console.log('No parent issue reference found in issue body');
+            } catch (error) {
+              console.error(`Error finding parent issue:`, error.message);
             }
 
             // Set GitHub Issue Type field (organizational issue type)

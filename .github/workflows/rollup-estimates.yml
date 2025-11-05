@@ -88,26 +88,133 @@ jobs:
             });
 
             const issueBody = issue.data.body || '';
+
+            // Helper function to find parent using native sub-issues
+            async function findParentIssue(issueNum) {
+              console.log(`Looking for parent of issue #${issueNum}...`);
+              
+              // Method 1: Check GitHub's native sub-issues
+              try {
+                const graphqlQuery = `
+                  query($owner: String!, $repo: String!, $issueNumber: Int!) {
+                    repository(owner: $owner, name: $repo) {
+                      issue(number: $issueNumber) {
+                        trackedInIssues(first: 1) {
+                          nodes {
+                            number
+                          }
+                        }
+                      }
+                    }
+                  }
+                `;
+                const result = await github.graphql(graphqlQuery, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issueNumber: issueNum
+                });
+                const parent = result.repository.issue.trackedInIssues.nodes[0];
+                if (parent) {
+                  console.log(`Parent found via sub-issues: #${parent.number}`);
+                  return parent.number;
+                }
+              } catch (error) {
+                console.log(`Could not query sub-issues: ${error.message}`);
+              }
+              
+              // Method 2: Fall back to description parsing
+              const issue = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNum
+              });
+              const body = issue.data.body || '';
+              const bodyWithoutComments = body.replace(/<!--[\s\S]*?-->/g, '');
+              const parentMatch = bodyWithoutComments.match(/(?:Epic|Feature|Parent Feature|Parent Epic):\s*#(\d+)/i);
+              if (parentMatch) {
+                const parentNum = parseInt(parentMatch[1]);
+                console.log(`Parent found via description: #${parentNum}`);
+                return parentNum;
+              }
+              return null;
+            }
+
+            // Helper function to find children using native sub-issues
+            async function findChildIssues(parentNum) {
+              console.log(`Finding children of issue #${parentNum}...`);
+              
+              // Method 1: Check GitHub's native sub-issues
+              try {
+                const graphqlQuery = `
+                  query($owner: String!, $repo: String!, $issueNumber: Int!) {
+                    repository(owner: $owner, name: $repo) {
+                      issue(number: $issueNumber) {
+                        trackedIssues(first: 100) {
+                          nodes {
+                            number
+                          }
+                        }
+                      }
+                    }
+                  }
+                `;
+                const result = await github.graphql(graphqlQuery, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issueNumber: parentNum
+                });
+                const children = result.repository.issue.trackedIssues.nodes;
+                if (children.length > 0) {
+                  console.log(`Found ${children.length} children via native sub-issues`);
+                  return children.map(c => c.number);
+                }
+              } catch (error) {
+                console.log(`Could not query native sub-issues: ${error.message}`);
+              }
+              
+              // Method 2: Fall back to description parsing
+              console.log('Falling back to description parsing...');
+              const allIssues = [];
+              let page = 1;
+              let hasMore = true;
+              while (hasMore) {
+                const issues = await github.rest.issues.listForRepo({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  state: 'all',
+                  per_page: 100,
+                  page: page
+                });
+                if (issues.data.length === 0) {
+                  hasMore = false;
+                } else {
+                  allIssues.push(...issues.data);
+                  page++;
+                }
+              }
+              const children = allIssues.filter(issue => {
+                const body = issue.body || '';
+                const parentPattern = new RegExp(`(?:Epic|Feature|Parent Feature|Parent Epic):\\s*#${parentNum}(?:\\s|$)`, 'i');
+                return parentPattern.test(body);
+              });
+              console.log(`Found ${children.length} children via description parsing`);
+              return children.map(c => c.number);
+            }
+
             console.log(`📌 Processing: #${issueNumber} - ${issue.data.title}`);
             console.log(`📊 Workflow: CHILD → PARENT rollup (bottom-up)`);
             console.log('=====================================\n');
 
-            // Remove HTML comments from body to avoid matching examples
-            const bodyWithoutComments = issueBody.replace(/<!--[\s\S]*?-->/g, '');
+            // Find parent issue
+            const parentIssueNumber = await findParentIssue(issueNumber);
 
-            // Extract parent issue reference
-            const parentMatch = bodyWithoutComments.match(/(?:Epic|Feature|Parent Feature|Parent Epic):\s*#(\d+)/i);
-
-            if (!parentMatch) {
-              console.log('ℹ️  No parent issue reference found');
+            if (!parentIssueNumber) {
+              console.log('No parent issue reference found');
               console.log('This issue is either:');
               console.log('  - A top-level Epic (no parent needed)');
-              console.log('  - Missing a parent reference in the body');
+              console.log('  - Missing a parent reference');
               return;
             }
-
-            const parentIssueNumber = parseInt(parentMatch[1]);
-            console.log(`✅ Parent issue found: #${parentIssueNumber}`);
 
             // Function to get all project fields for an issue
             async function getProjectFields(issueNumber) {
@@ -234,44 +341,15 @@ jobs:
 
             // Function to find all children and sum their estimates and remaining work
             async function calculateChildrenSums(parentNumber) {
-              const allIssues = [];
-              let page = 1;
-              let hasMore = true;
-
-              console.log(`Finding all children of #${parentNumber}...`);
-
-              while (hasMore) {
-                const issues = await github.rest.issues.listForRepo({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  state: 'all',
-                  per_page: 100,
-                  page: page
-                });
-
-                if (issues.data.length === 0) {
-                  hasMore = false;
-                } else {
-                  allIssues.push(...issues.data);
-                  page++;
-                }
-              }
-
-              // Filter children
-              const children = allIssues.filter(issue => {
-                const body = issue.body || '';
-                const parentPattern = new RegExp(`(?:Epic|Feature|Parent Feature|Parent Epic):\\s*#${parentNumber}(?:\\s|$)`, 'i');
-                return parentPattern.test(body);
-              });
-
-              console.log(`Found ${children.length} child issue(s)`);
+              const childNumbers = await findChildIssues(parentNumber);
+              console.log(`Found ${childNumbers.length} child issue(s)`);
 
               let totalEstimate = 0;
               let totalRemaining = 0;
               const childDetails = [];
 
-              for (const child of children) {
-                const projectFields = await getProjectFields(child.number);
+              for (const childNumber of childNumbers) {
+                const projectFields = await getProjectFields(childNumber);
 
                 if (projectFields && projectFields.fields) {
                   const estimate = projectFields.fields['Estimate']?.value || 0;
@@ -281,19 +359,19 @@ jobs:
                   totalRemaining += remaining;
 
                   childDetails.push({
-                    number: child.number,
+                    number: childNumber,
                     estimate: estimate,
                     remaining: remaining
                   });
 
-                  console.log(`  #${child.number}: Estimate=${estimate}, Remaining=${remaining}`);
+                  console.log(`  #${childNumber}: Estimate=${estimate}, Remaining=${remaining}`);
                 }
               }
 
               return {
                 totalEstimate,
                 totalRemaining,
-                childCount: children.length,
+                childCount: childNumbers.length,
                 childDetails
               };
             }
@@ -362,21 +440,14 @@ jobs:
               }
 
               // Find grandparent and continue chain
-              const parentIssue = await github.rest.issues.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: parentNumber
-              });
+              const grandparentNumber = await findParentIssue(parentNumber);
 
-              const parentBody = parentIssue.data.body || '';
-              const grandparentMatch = parentBody.match(/(?:Epic|Feature|Parent Feature|Parent Epic):\s*#(\d+)/i);
-
-              if (grandparentMatch) {
-                const grandparentNumber = parseInt(grandparentMatch[1]);
+              if (grandparentNumber) {
                 console.log(`${indent}Found grandparent #${grandparentNumber}, continuing chain...`);
                 await updateParentChain(grandparentNumber, depth + 1);
               } else {
                 console.log(`${indent}No grandparent found, rollup complete`);
+              }
               }
             }
 
