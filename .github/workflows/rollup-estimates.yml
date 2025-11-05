@@ -143,33 +143,20 @@ jobs:
             async function findChildIssues(parentNum) {
               console.log(`Finding children of issue #${parentNum}...`);
               
-              // Method 1: Check GitHub's native sub-issues
+              // Method 1: Check GitHub's native sub-issues using REST API
               try {
-                const graphqlQuery = `
-                  query($owner: String!, $repo: String!, $issueNumber: Int!) {
-                    repository(owner: $owner, name: $repo) {
-                      issue(number: $issueNumber) {
-                        trackedIssues(first: 100) {
-                          nodes {
-                            number
-                          }
-                        }
-                      }
-                    }
-                  }
-                `;
-                const result = await github.graphql(graphqlQuery, {
+                const response = await github.request('GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues', {
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  issueNumber: parentNum
+                  issue_number: parentNum
                 });
-                const children = result.repository.issue.trackedIssues.nodes;
-                if (children.length > 0) {
-                  console.log(`Found ${children.length} children via native sub-issues`);
-                  return children.map(c => c.number);
+
+                if (response.data && response.data.length > 0) {
+                  console.log(`Found ${response.data.length} children via REST API sub-issues`);
+                  return response.data.map(c => c.number);
                 }
               } catch (error) {
-                console.log(`Could not query native sub-issues: ${error.message}`);
+                console.log(`Could not get sub-issues from REST API: ${error.message}`);
               }
               
               // Method 2: Fall back to description parsing
