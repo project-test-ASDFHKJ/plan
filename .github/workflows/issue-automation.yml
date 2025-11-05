@@ -231,59 +231,35 @@ jobs:
             async function findParentIssue(issueNum) {
               console.log(`🔍 Looking for parent of issue #${issueNum}...`);
 
-              // Method 1: Find parent by checking all issues' trackedIssues
-              // This is the only reliable way since 'tracked:' search doesn't work
+              // Method 1: Check for parent using REST API
+              // GitHub's REST API has parent_issue_url field that actually works!
               try {
-                console.log('Checking all issues for parent relationship...');
-
-                // Query all open issues with their trackedIssues
-                const query = `
-                  query($owner: String!, $name: String!) {
-                    repository(owner: $owner, name: $name) {
-                      issues(first: 100, states: OPEN) {
-                        nodes {
-                          number
-                          title
-                          milestone {
-                            number
-                            title
-                          }
-                          labels(first: 20) {
-                            nodes {
-                              name
-                            }
-                          }
-                          trackedIssues(first: 100) {
-                            nodes {
-                              number
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                `;
-
-                const result = await github.graphql(query, {
+                const childIssue = await github.rest.issues.get({
                   owner: context.repo.owner,
-                  name: context.repo.repo
+                  repo: context.repo.repo,
+                  issue_number: issueNum
                 });
 
-                // Find which issue has this issue in its trackedIssues
-                const parent = result.repository.issues.nodes.find(issue =>
-                  issue.trackedIssues.nodes.some(tracked => tracked.number === issueNum)
-                );
+                if (childIssue.data.parent_issue_url) {
+                  // Extract parent number from URL: .../issues/42
+                  const parentNum = parseInt(childIssue.data.parent_issue_url.split('/').pop());
+                  console.log(`✅ Parent found via REST API: #${parentNum}`);
 
-                if (parent) {
-                  console.log(`✅ Parent found via native sub-issues: #${parent.number}`);
+                  // Get parent details
+                  const parentIssue = await github.rest.issues.get({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: parentNum
+                  });
+
                   return {
-                    number: parent.number,
-                    milestone: parent.milestone,
-                    labels: parent.labels.nodes || []
+                    number: parentNum,
+                    milestone: parentIssue.data.milestone,
+                    labels: parentIssue.data.labels || []
                   };
                 }
               } catch (error) {
-                console.log(`⚠️  Could not query for parent: ${error.message}`);
+                console.log(`⚠️  Could not get parent from REST API: ${error.message}`);
               }
 
               // Method 2: Fall back to description parsing
