@@ -1,6 +1,6 @@
 # Burndown Report
 
-**Generated:** 2025-11-05 at 01:57:08 UTC
+**Generated:** 2025-11-06 at 01:57:08 UTC
 
 **Project:** [TEMPLATE] EngageMe
 
@@ -10,15 +10,15 @@
 
 <table>
 <tr>
-<td><strong>Remaining Work</strong><br/>0h</td>
-<td><strong>Completed</strong><br/>0%</td>
-<td><strong>Average Burndown</strong><br/>0.0h/day</td>
-<td><strong>Total Scope</strong><br/>0h</td>
+<td><strong>Remaining Work</strong><br/>140h</td>
+<td><strong>Completed</strong><br/>71%</td>
+<td><strong>Average Burndown</strong><br/>43.3h/day</td>
+<td><strong>Total Scope</strong><br/>486h</td>
 </tr>
 </table>
 
 **Duration:** 2025-10-30 to 2025-11-20 (21 days)  
-**Progress:** Day 7 of 21 (15 days remaining)
+**Progress:** Day 8 of 21 (14 days remaining)
 
 ### Burndown Chart
 
@@ -28,13 +28,28 @@
 
 | Metric | Value |
 |--------|-------|
-| **Issues Closed** | 0 / 0 |
+| **Issues Closed** | 0 / 14 |
+| **Projected Completion** | 4 days (✅ On Track) |
 
 <details>
-<summary><strong>View All Issues (0)</strong></summary>
+<summary><strong>View All Issues (14)</strong></summary>
 
 | # | Title | Type | State | Estimate | Remaining | Completed |
 |---|-------|------|-------|----------|-----------|----------|
+| 🔵 #25 | [EPIC]  epic 3 | Unknown | OPEN | 50h | 0h | 50h |
+| 🔵 #26 | [FEATURE] feature 3 | Unknown | OPEN | 50h | 0h | 50h |
+| 🔵 #27 | [EPIC] epic 4 | Unknown | OPEN | 50h | 2h | 48h |
+| 🔵 #30 | [EPIC] epic 6 | Unknown | OPEN | 0h | 0h | 0h |
+| 🔵 #32 | [EPIC]  epic 7 | Unknown | OPEN | 0h | 0h | 0h |
+| 🔵 #34 | [FEATURE] fæture 7.1 | Unknown | OPEN | 0h | 0h | 0h |
+| 🔵 #36 | [EPIC] epic 8 | Unknown | OPEN | 0h | 0h | 0h |
+| 🔵 #42 | [EPIC] asbest 3.0? | Unknown | OPEN | 50h | 20h | 30h |
+| 🔵 #43 | [FEATURE] kraken | Unknown | OPEN | 50h | 20h | 30h |
+| 🔵 #44 | [Task] streger på fortorvet | Unknown | OPEN | 50h | 20h | 30h |
+| 🔵 #45 | [EPIC]  Forest Whitaker | Unknown | OPEN | 62h | 26h | 36h |
+| 🔵 #46 | [FEATURE] Michael Caine | Unknown | OPEN | 62h | 26h | 36h |
+| 🔵 #47 | [Task] Clint Eastwood | Unknown | OPEN | 50h | 20h | 30h |
+| 🔵 #48 | [Task] Gary Oldman | Unknown | OPEN | 12h | 6h | 6h |
 
 </details>
 
@@ -52,7 +67,7 @@
 </table>
 
 **Duration:** 2025-11-20 to 2025-12-11 (21 days)  
-**Progress:** Day 0 of 21 (36 days remaining)
+**Progress:** Day 0 of 21 (35 days remaining)
 
 ### Metrics
 
@@ -82,7 +97,7 @@
 </table>
 
 **Duration:** 2025-12-11 to 2026-01-01 (21 days)  
-**Progress:** Day 0 of 21 (57 days remaining)
+**Progress:** Day 0 of 21 (56 days remaining)
 
 ### Metrics
 
