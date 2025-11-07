@@ -181,48 +181,79 @@ jobs:
 
             console.log('Building parent-child relationships using native sub-issues...');
 
-            // For each issue, check if it has sub-issues using REST API
+            // For each issue, check if it has sub-issues using GraphQL (supports cross-repo)
             let apiCallCount = 0;
             let successCount = 0;
             let errorCount = 0;
-            let error404Count = 0;
 
-            for (const issue of allIssues) {
-              apiCallCount++;
-              try {
-                // Use REST API to get sub-issues - this actually works!
-                const response = await github.request('GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues', {
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: issue.number,
-                  headers: {
-                    'X-GitHub-Api-Version': '2022-11-28'
+            // Process issues in batches of 20 to reduce GraphQL calls
+            const batchSize = 20;
+            for (let i = 0; i < allIssues.length; i += batchSize) {
+              const batch = allIssues.slice(i, Math.min(i + batchSize, allIssues.length));
+
+              // Build GraphQL query for batch
+              const queries = batch.map((issue, idx) => `
+                issue${idx}: issue(number: ${issue.number}) {
+                  number
+                  trackedIssues(first: 100) {
+                    nodes {
+                      number
+                      repository {
+                        name
+                        owner {
+                          login
+                        }
+                      }
+                    }
                   }
-                });
+                }
+              `).join('\n');
 
-                successCount++;
-                const children = response.data;
-                if (children && children.length > 0) {
-                  console.log(`✅ Issue #${issue.number} has ${children.length} children: ${children.map(c => c.number).join(', ')}`);
-                  // Store full child objects to preserve repository info for cross-repo support
-                  parentChildMap.set(issue.number, children);
-                  for (const child of children) {
-                    childParentMap.set(child.number, issue.number);
+              const graphqlQuery = `
+                query {
+                  repository(owner: "${context.repo.owner}", name: "${context.repo.repo}") {
+                    ${queries}
+                  }
+                }
+              `;
+
+              try {
+                const result = await github.graphql(graphqlQuery);
+
+                for (let idx = 0; idx < batch.length; idx++) {
+                  const issue = batch[idx];
+                  const issueData = result.repository[`issue${idx}`];
+                  apiCallCount++;
+
+                  if (issueData && issueData.trackedIssues.nodes.length > 0) {
+                    const children = issueData.trackedIssues.nodes;
+                    successCount++;
+
+                    // Log with repo info for cross-repo children
+                    const childLabels = children.map(c => {
+                      if (c.repository.name !== context.repo.repo) {
+                        return `${c.repository.name}#${c.number}`;
+                      }
+                      return `#${c.number}`;
+                    }).join(', ');
+
+                    console.log(`✅ Issue #${issue.number} has ${children.length} children: ${childLabels}`);
+
+                    // Store full child objects with repository info for cross-repo support
+                    parentChildMap.set(issue.number, children);
+
+                    for (const child of children) {
+                      childParentMap.set(child.number, issue.number);
+                    }
                   }
                 }
               } catch (error) {
-                // If REST API fails (404 or other error), skip this issue
-                // This is normal for issues without sub-issues
-                if (error.status === 404) {
-                  error404Count++;
-                } else {
-                  errorCount++;
-                  console.log(`⚠️  Error for #${issue.number}: ${error.status} - ${error.message}`);
-                }
+                errorCount++;
+                console.log(`⚠️  Error processing batch: ${error.message}`);
               }
             }
 
-            console.log(`API Statistics: ${apiCallCount} calls, ${successCount} success, ${error404Count} not found, ${errorCount} errors`);
+            console.log(`API Statistics: ${apiCallCount} issues checked, ${successCount} with children, ${errorCount} errors`);
             console.log(`Found ${parentChildMap.size} parent issues with children`);
 
             // Process each parent issue

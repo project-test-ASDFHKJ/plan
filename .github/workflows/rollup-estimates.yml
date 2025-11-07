@@ -139,53 +139,53 @@ jobs:
               return null;
             }
 
-            // Helper function to find children using native sub-issues
+            // Helper function to find children using native sub-issues (supports cross-repo)
             async function findChildIssues(parentNum) {
               console.log(`Finding children of issue #${parentNum}...`);
-              
-              // Method 1: Check GitHub's native sub-issues using REST API
-              try {
-                const response = await github.request('GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues', {
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: parentNum
-                });
 
-                if (response.data && response.data.length > 0) {
-                  console.log(`Found ${response.data.length} children via REST API sub-issues`);
-                  return response.data.map(c => c.number);
+              // Use GraphQL to get sub-issues (supports cross-repository relationships)
+              try {
+                const graphqlQuery = `
+                  query {
+                    repository(owner: "${context.repo.owner}", name: "${context.repo.repo}") {
+                      issue(number: ${parentNum}) {
+                        trackedIssues(first: 100) {
+                          nodes {
+                            number
+                            repository {
+                              name
+                              owner {
+                                login
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                `;
+
+                const result = await github.graphql(graphqlQuery);
+                const children = result.repository.issue.trackedIssues.nodes;
+
+                if (children && children.length > 0) {
+                  // Log with repo info for cross-repo children
+                  const childLabels = children.map(c => {
+                    if (c.repository.name !== context.repo.repo) {
+                      return `${c.repository.name}#${c.number}`;
+                    }
+                    return `#${c.number}`;
+                  }).join(', ');
+
+                  console.log(`Found ${children.length} children via GraphQL: ${childLabels}`);
+                  return children; // Return full objects with repository info
                 }
               } catch (error) {
-                console.log(`Could not get sub-issues from REST API: ${error.message}`);
+                console.log(`Could not get sub-issues from GraphQL: ${error.message}`);
               }
-              
-              // Method 2: Fall back to description parsing
-              console.log('Falling back to description parsing...');
-              const allIssues = [];
-              let page = 1;
-              let hasMore = true;
-              while (hasMore) {
-                const issues = await github.rest.issues.listForRepo({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  state: 'all',
-                  per_page: 100,
-                  page: page
-                });
-                if (issues.data.length === 0) {
-                  hasMore = false;
-                } else {
-                  allIssues.push(...issues.data);
-                  page++;
-                }
-              }
-              const children = allIssues.filter(issue => {
-                const body = issue.body || '';
-                const parentPattern = new RegExp(`(?:Epic|Feature|Parent Feature|Parent Epic):\\s*#${parentNum}(?:\\s|$)`, 'i');
-                return parentPattern.test(body);
-              });
-              console.log(`Found ${children.length} children via description parsing`);
-              return children.map(c => c.number);
+
+              console.log('No children found');
+              return [];
             }
 
             console.log(`📌 Processing: #${issueNumber} - ${issue.data.title}`);
@@ -328,15 +328,20 @@ jobs:
 
             // Function to find all children and sum their estimates and remaining work
             async function calculateChildrenSums(parentNumber) {
-              const childNumbers = await findChildIssues(parentNumber);
-              console.log(`Found ${childNumbers.length} child issue(s)`);
+              const children = await findChildIssues(parentNumber);
+              console.log(`Found ${children.length} child issue(s)`);
 
               let totalEstimate = 0;
               let totalRemaining = 0;
               const childDetails = [];
 
-              for (const childNumber of childNumbers) {
-                const projectFields = await getProjectFields(childNumber);
+              for (const child of children) {
+                // Extract repository info for cross-repo support
+                const childOwner = child.repository?.owner?.login || context.repo.owner;
+                const childRepo = child.repository?.name || context.repo.repo;
+                const childNumber = child.number;
+
+                const projectFields = await getProjectFields(childNumber, childOwner, childRepo);
 
                 if (projectFields && projectFields.fields) {
                   const estimate = projectFields.fields['Estimate']?.value || 0;
@@ -345,20 +350,23 @@ jobs:
                   totalEstimate += estimate;
                   totalRemaining += remaining;
 
+                  const repoLabel = childRepo !== context.repo.repo ? `${childRepo}#${childNumber}` : `#${childNumber}`;
+
                   childDetails.push({
                     number: childNumber,
+                    repo: childRepo,
                     estimate: estimate,
                     remaining: remaining
                   });
 
-                  console.log(`  #${childNumber}: Estimate=${estimate}, Remaining=${remaining}`);
+                  console.log(`  ${repoLabel}: Estimate=${estimate}, Remaining=${remaining}`);
                 }
               }
 
               return {
                 totalEstimate,
                 totalRemaining,
-                childCount: childNumbers.length,
+                childCount: children.length,
                 childDetails
               };
             }
