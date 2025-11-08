@@ -1,6 +1,6 @@
 # Burndown Report
 
-**Generated:** 2025-11-07 at 01:55:44 UTC
+**Generated:** 2025-11-08 at 01:49:29 UTC
 
 **Project:** [TEMPLATE] EngageMe
 
@@ -12,13 +12,13 @@
 <tr>
 <td><strong>Remaining Work</strong><br/>140h</td>
 <td><strong>Completed</strong><br/>71%</td>
-<td><strong>Average Burndown</strong><br/>38.4h/day</td>
+<td><strong>Average Burndown</strong><br/>34.6h/day</td>
 <td><strong>Total Scope</strong><br/>486h</td>
 </tr>
 </table>
 
 **Duration:** 2025-10-30 to 2025-11-20 (21 days)  
-**Progress:** Day 9 of 21 (13 days remaining)
+**Progress:** Day 10 of 21 (12 days remaining)
 
 ### Burndown Chart
 
@@ -28,11 +28,11 @@
 
 | Metric | Value |
 |--------|-------|
-| **Issues Closed** | 0 / 14 |
-| **Projected Completion** | 4 days (✅ On Track) |
+| **Issues Closed** | 0 / 16 |
+| **Projected Completion** | 5 days (✅ On Track) |
 
 <details>
-<summary><strong>View All Issues (14)</strong></summary>
+<summary><strong>View All Issues (16)</strong></summary>
 
 | # | Title | Type | State | Estimate | Remaining | Completed |
 |---|-------|------|-------|----------|-----------|----------|
@@ -50,6 +50,8 @@
 | 🔵 #46 | [FEATURE] Michael Caine | Unknown | OPEN | 62h | 26h | 36h |
 | 🔵 #47 | [Task] Clint Eastwood | Unknown | OPEN | 50h | 20h | 30h |
 | 🔵 #48 | [Task] Gary Oldman | Unknown | OPEN | 12h | 6h | 6h |
+| 🔵 #49 | [EPIC]  Epic 7/11 | Unknown | OPEN | 0h | 0h | 0h |
+| 🔵 #50 | [FEATURE] Feature 7/11 | Unknown | OPEN | 0h | 0h | 0h |
 
 </details>
 
@@ -67,7 +69,7 @@
 </table>
 
 **Duration:** 2025-11-20 to 2025-12-11 (21 days)  
-**Progress:** Day 0 of 21 (34 days remaining)
+**Progress:** Day 0 of 21 (33 days remaining)
 
 ### Metrics
 
@@ -97,7 +99,7 @@
 </table>
 
 **Duration:** 2025-12-11 to 2026-01-01 (21 days)  
-**Progress:** Day 0 of 21 (55 days remaining)
+**Progress:** Day 0 of 21 (54 days remaining)
 
 ### Metrics
 
