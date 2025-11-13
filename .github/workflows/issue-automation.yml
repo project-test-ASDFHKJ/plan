@@ -2,7 +2,7 @@ name: Issue Automation
 
 on:
   issues:
-    types: [opened, edited, reopened, closed, milestoned, demilestoned, assigned, unassigned, labeled, unlabeled, sub_issue_added, sub_issue_removed]
+    types: [opened, edited, reopened, closed, milestoned, demilestoned, assigned, unassigned, labeled, unlabeled]
 
 jobs:
   automate-issue:
@@ -913,8 +913,8 @@ jobs:
             // ========================================
             const actionType = context.payload.action;
 
-            if (['edited', 'sub_issue_added', 'sub_issue_removed'].includes(actionType)) {
-              console.log(`\n🔍 Checking for newly added child issues (trigger: ${actionType})...`);
+            if (actionType === 'edited') {
+              console.log(`\n🔍 Checking for newly added child issues...`);
 
               try {
                 const children = await findChildIssues(issueNumber);
@@ -1094,7 +1094,7 @@ jobs:
             const currentMilestone = context.payload.issue.milestone;
 
             let updatedDescendants = new Set();
-            if (['milestoned', 'demilestoned', 'edited', 'sub_issue_added'].includes(actionType)) {
+            if (['milestoned', 'demilestoned', 'edited'].includes(actionType)) {
               console.log(`\n🔄 Cascading milestone changes to all descendants of #${issueNumber}...`);
               updatedDescendants = await updateDescendantsMilestone(issueNumber, currentMilestone);
 
