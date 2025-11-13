@@ -205,7 +205,7 @@ jobs:
             }
 
             const allIssues = targetProject.items.nodes
-              .filter(item => item.content && item.content.number)
+              .filter(item => item.content && item.content.number && item.content.state === 'OPEN')
               .map(item => ({
                 number: item.content.number,
                 title: item.content.title,
@@ -214,7 +214,8 @@ jobs:
                 repo: item.content.repository?.name || context.repo.repo
               }));
 
-            console.log(`Found ${allIssues.length} total issues across all repos`);
+            const totalIssuesInProject = targetProject.items.nodes.filter(item => item.content && item.content.number).length;
+            console.log(`Found ${totalIssuesInProject} total issues in project (${allIssues.length} open, ignoring closed)`);
 
             // Group issues by repository
             const repoGroups = new Map();
