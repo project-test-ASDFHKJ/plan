@@ -34,14 +34,15 @@ jobs:
             const issueTitle = context.payload.issue.title || '';
 
             // Function to find all child issues (supports cross-repository)
-            async function findChildIssues(parentNumber) {
-              console.log(`🔍 Looking for children of issue #${parentNumber}...`);
+            async function findChildIssues(parentNumber, owner = context.repo.owner, repo = context.repo.repo) {
+              const repoLabel = (owner !== context.repo.owner || repo !== context.repo.repo) ? `${owner}/${repo}#${parentNumber}` : `#${parentNumber}`;
+              console.log(`🔍 Looking for children of issue ${repoLabel}...`);
 
               // Use REST API sub_issues endpoint (properly supports cross-repository relationships)
               try {
                 const response = await github.request('GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues', {
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
+                  owner: owner,
+                  repo: repo,
                   issue_number: parentNumber
                 });
 
@@ -89,11 +90,12 @@ jobs:
               return [];
             }
 
-            async function closeAllDescendants(parentNumber, depth = 0, closedIssues = new Set()) {
+            async function closeAllDescendants(parentNumber, depth = 0, closedIssues = new Set(), owner = context.repo.owner, repo = context.repo.repo) {
               const indent = '  '.repeat(depth);
-              console.log(`${indent}🔒 Closing all descendants of #${parentNumber}...`);
+              const repoLabel = (owner !== context.repo.owner || repo !== context.repo.repo) ? `${owner}/${repo}#${parentNumber}` : `#${parentNumber}`;
+              console.log(`${indent}🔒 Closing all descendants of ${repoLabel}...`);
 
-              const children = await findChildIssues(parentNumber);
+              const children = await findChildIssues(parentNumber, owner, repo);
 
               for (const child of children) {
                 const childOwner = child.repository?.owner?.login || context.repo.owner;
@@ -125,7 +127,7 @@ jobs:
                     console.log(`${indent}✅ Closed ${repoLabel}`);
 
                     // Recursively close grandchildren (including cross-repo)
-                    await closeAllDescendants(childNumber, depth + 1, closedIssues);
+                    await closeAllDescendants(childNumber, depth + 1, closedIssues, childOwner, childRepo);
                   } else {
                     console.log(`${indent}⏭️  ${repoLabel} already closed`);
                   }
@@ -145,11 +147,12 @@ jobs:
               return closedIssues;
             }
 
-            async function updateDescendantsMilestone(parentNumber, milestone, depth = 0, updatedIssues = new Set()) {
+            async function updateDescendantsMilestone(parentNumber, milestone, depth = 0, updatedIssues = new Set(), owner = context.repo.owner, repo = context.repo.repo) {
               const indent = '  '.repeat(depth);
-              console.log(`${indent}Checking descendants of #${parentNumber}...`);
+              const repoLabel = (owner !== context.repo.owner || repo !== context.repo.repo) ? `${owner}/${repo}#${parentNumber}` : `#${parentNumber}`;
+              console.log(`${indent}Checking descendants of ${repoLabel}...`);
 
-              const children = await findChildIssues(parentNumber);
+              const children = await findChildIssues(parentNumber, owner, repo);
 
               for (const child of children) {
                 // Extract repository info for cross-repo support
@@ -189,12 +192,8 @@ jobs:
                     console.log(`${indent}⏭️  ${repoLabel} already has correct milestone`);
                   }
 
-                  // Recursively update grandchildren (only for same-repo to avoid deep cross-repo recursion)
-                  if (!isCrossRepo) {
-                    await updateDescendantsMilestone(childNumber, milestone, depth + 1, updatedIssues);
-                  } else {
-                    console.log(`${indent}ℹ️  Skipping grandchildren check for cross-repo issue ${repoLabel}`);
-                  }
+                  // Recursively update grandchildren (including cross-repo)
+                  await updateDescendantsMilestone(childNumber, milestone, depth + 1, updatedIssues, childOwner, childRepo);
                 } catch (error) {
                   if (error.status === 410) {
                     console.log(`${indent}⚠️  ${repoLabel} was deleted, skipping`);
@@ -212,11 +211,12 @@ jobs:
             }
 
             // Function to recursively update all descendants with label changes
-            async function updateDescendantsLabels(parentNumber, labelName, operation, depth = 0, updatedIssues = new Set()) {
+            async function updateDescendantsLabels(parentNumber, labelName, operation, depth = 0, updatedIssues = new Set(), owner = context.repo.owner, repo = context.repo.repo) {
               const indent = '  '.repeat(depth);
-              console.log(`${indent}Checking descendants of #${parentNumber} for label ${operation}...`);
+              const repoLabel = (owner !== context.repo.owner || repo !== context.repo.repo) ? `${owner}/${repo}#${parentNumber}` : `#${parentNumber}`;
+              console.log(`${indent}Checking descendants of ${repoLabel} for label ${operation}...`);
 
-              const children = await findChildIssues(parentNumber);
+              const children = await findChildIssues(parentNumber, owner, repo);
 
               for (const child of children) {
                 // Extract repository info for cross-repo support
@@ -277,7 +277,7 @@ jobs:
                 }
 
                 // Recursively update grandchildren (including cross-repo)
-                await updateDescendantsLabels(childNumber, labelName, operation, depth + 1, updatedIssues);
+                await updateDescendantsLabels(childNumber, labelName, operation, depth + 1, updatedIssues, childOwner, childRepo);
               }
 
               return updatedIssues;
