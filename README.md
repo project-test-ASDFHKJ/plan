@@ -61,7 +61,10 @@ All automations run from the `plan` repository only. No workflows needed in othe
 
 ## Estimate Rollup
 
-**When:** Every 15 minutes (automatic) OR when you add `sync` label (instant)
+**When:**
+- Every 15 minutes (automatic background scan of all repos)
+- When you edit any issue in `plan` repo (instant)
+- When you add `sync` label to any issue (instant)
 
 **What happens:**
 - Parent's Estimate = sum of all open children's Estimates
@@ -70,7 +73,10 @@ All automations run from the `plan` repository only. No workflows needed in othe
 - Closed issues and closed children are ignored
 - Rolls up through entire tree (grandchildren → children → parents)
 
-**How to trigger instantly:** Add `sync` label to any parent issue
+**Notes:**
+- The 15-minute scan catches updates from all repos (plan, calendar, etc.)
+- Editing issues in `plan` triggers instant rollup for that issue's parent
+- Use `sync` label for instant rollup from any repo
 
 ---
 
