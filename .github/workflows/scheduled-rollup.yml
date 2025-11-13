@@ -311,6 +311,24 @@ jobs:
                 const childRepo = child.repo;
                 const childNumber = child.number;
 
+                // Check if child is closed - skip if so
+                try {
+                  const childIssue = await github.rest.issues.get({
+                    owner: childOwner,
+                    repo: childRepo,
+                    issue_number: childNumber
+                  });
+
+                  if (childIssue.data.state === 'closed') {
+                    const repoLabel = childRepo !== context.repo.repo ? `${childRepo}#${childNumber}` : `#${childNumber}`;
+                    console.log(`  ${repoLabel}: SKIPPED (closed)`);
+                    continue;
+                  }
+                } catch (error) {
+                  console.log(`  ⚠️  Could not check state for child #${childNumber}: ${error.message}`);
+                  continue;
+                }
+
                 const projectFields = await getProjectFields(childNumber, childOwner, childRepo);
 
                 if (projectFields && projectFields.fields) {
