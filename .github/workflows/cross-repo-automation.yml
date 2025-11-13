@@ -206,14 +206,12 @@ jobs:
                 }
 
                 // 6. Add comment to child issue
-                const commentBody = `🔗 **Automated Setup Complete**
-
-This issue has been linked as a child of ${context.repo.owner}/${context.repo.repo}#${issue.number} and automatically configured:
-
-${actions.map(a => `- ✅ ${a}`).join('\n')}
-
----
-*Managed by [Cross-Repo Automation](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/master/.github/workflows/cross-repo-automation.yml)*`;
+                const actionsList = actions.map(a => '- ✅ ' + a).join('\n');
+                const commentBody = '🔗 **Automated Setup Complete**\n\n' +
+                  'This issue has been linked as a child of ' + context.repo.owner + '/' + context.repo.repo + '#' + issue.number + ' and automatically configured:\n\n' +
+                  actionsList + '\n\n' +
+                  '---\n' +
+                  '*Managed by [Cross-Repo Automation](https://github.com/' + context.repo.owner + '/' + context.repo.repo + '/blob/master/.github/workflows/cross-repo-automation.yml)*';
 
                 await helper.addComment(
                   github,
@@ -248,7 +246,8 @@ ${actions.map(a => `- ✅ ${a}`).join('\n')}
                 summary += `### ✅ Processed Issues (${results.processed.length})\n\n`;
                 for (const item of results.processed) {
                   summary += `**${item.issue}** - ${item.title}\n`;
-                  summary += `${item.actions.map(a => `  - ${a}`).join('\n')}\n\n`;
+                  const itemActions = item.actions.map(a => '  - ' + a).join('\n');
+                  summary += itemActions + '\n\n';
                 }
               }
 
