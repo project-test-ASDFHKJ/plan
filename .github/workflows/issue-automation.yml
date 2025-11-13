@@ -1231,8 +1231,8 @@ jobs:
                             console.log('  ⚠️  Could not inherit iteration: ' + iterError.message);
                           }
                         } else if (isCrossRepo && !needsProjectSetup && project) {
-                          // Child is already in project, but it's cross-repo - still need to set iteration
-                          console.log('  📅 Checking iteration for existing cross-repo child...');
+                          // Child is already in project, but it's cross-repo - still need to set type and iteration
+                          console.log('  🔍 Checking type and iteration for existing cross-repo child...');
                           try {
                             // Find the child's item ID in the project
                             const childItemQuery = `
@@ -1259,6 +1259,14 @@ jobs:
                                             id
                                             name
                                           }
+                                          ... on ProjectV2SingleSelectField {
+                                            id
+                                            name
+                                            options {
+                                              id
+                                              name
+                                            }
+                                          }
                                         }
                                       }
                                     }
@@ -1278,6 +1286,44 @@ jobs:
                               );
 
                               if (childProjectItem) {
+                                // Set Type based on title
+                                const childTitle = childIssue.data.title;
+                                let childType = null;
+                                if (childTitle.startsWith('[EPIC]')) childType = 'Epic';
+                                else if (childTitle.startsWith('[FEATURE]')) childType = 'Feature';
+                                else if (childTitle.startsWith('[STORY]')) childType = 'User Story';
+                                else if (childTitle.startsWith('[TASK]') || childTitle.startsWith('[Task]')) childType = 'Task';
+
+                                if (childType) {
+                                  const typeField = childItemProject.fields.nodes.find(f => f.name === 'Type');
+                                  if (typeField) {
+                                    const typeOption = typeField.options.find(o => o.name === childType);
+                                    if (typeOption) {
+                                      const updateTypeMutation = `
+                                        mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
+                                          updateProjectV2ItemFieldValue(input: {
+                                            projectId: $projectId
+                                            itemId: $itemId
+                                            fieldId: $fieldId
+                                            value: $value
+                                          }) {
+                                            projectV2Item { id }
+                                          }
+                                        }
+                                      `;
+
+                                      await github.graphql(updateTypeMutation, {
+                                        projectId: childItemProject.id,
+                                        itemId: childProjectItem.id,
+                                        fieldId: typeField.id,
+                                        value: { singleSelectOptionId: typeOption.id }
+                                      });
+
+                                      console.log(`  ✅ Set Type to "${childType}" for ${repoLabel}`);
+                                    }
+                                  }
+                                }
+
                                 // Get parent's iteration
                                 const parentIterationQuery = `
                                   query($owner: String!) {
