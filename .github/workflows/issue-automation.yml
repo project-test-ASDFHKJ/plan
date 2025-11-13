@@ -283,6 +283,156 @@ jobs:
               return updatedIssues;
             }
 
+            async function updateDescendantsTypes(parentNumber, depth = 0, updatedIssues = new Set(), owner = context.repo.owner, repo = context.repo.repo) {
+              const indent = '  '.repeat(depth);
+              const repoLabel = (owner !== context.repo.owner || repo !== context.repo.repo) ? `${owner}/${repo}#${parentNumber}` : `#${parentNumber}`;
+              console.log(`${indent}🏷️  Setting types for descendants of ${repoLabel}...`);
+
+              const children = await findChildIssues(parentNumber, owner, repo);
+
+              for (const child of children) {
+                const childOwner = child.repository?.owner?.login || context.repo.owner;
+                const childRepo = child.repository?.name || context.repo.repo;
+                const childNumber = child.number;
+                const childRepoLabel = (childRepo !== context.repo.repo || childOwner !== context.repo.owner) ? `${childOwner}/${childRepo}#${childNumber}` : `#${childNumber}`;
+                const issueKey = `${childOwner}/${childRepo}#${childNumber}`;
+
+                if (updatedIssues.has(issueKey)) {
+                  console.log(`${indent}⏭️  Skipping ${childRepoLabel} (already processed)`);
+                  continue;
+                }
+
+                updatedIssues.add(issueKey);
+
+                try {
+                  // Get child issue details
+                  const childIssue = await github.rest.issues.get({
+                    owner: childOwner,
+                    repo: childRepo,
+                    issue_number: childNumber
+                  });
+
+                  // Determine type from title
+                  const childTitle = childIssue.data.title;
+                  let childType = null;
+                  if (childTitle.startsWith('[EPIC]')) childType = 'Epic';
+                  else if (childTitle.startsWith('[FEATURE]')) childType = 'Feature';
+                  else if (childTitle.startsWith('[STORY]')) childType = 'User Story';
+                  else if (childTitle.startsWith('[TASK]') || childTitle.startsWith('[Task]')) childType = 'Task';
+
+                  if (childType) {
+                    // Set organization-level issue type
+                    try {
+                      await github.rest.issues.update({
+                        owner: childOwner,
+                        repo: childRepo,
+                        issue_number: childNumber,
+                        type: childType
+                      });
+                      console.log(`${indent}  ✅ Set organization type to "${childType}" for ${childRepoLabel}`);
+                    } catch (typeError) {
+                      console.log(`${indent}  ⚠️  Could not set organization type: ${typeError.message}`);
+                    }
+
+                    // Set project Type field
+                    try {
+                      const projectQuery = `
+                        query($owner: String!) {
+                          organization(login: $owner) {
+                            projectsV2(first: 10) {
+                              nodes {
+                                id
+                                title
+                                items(first: 100) {
+                                  nodes {
+                                    id
+                                    content {
+                                      ... on Issue {
+                                        id
+                                      }
+                                    }
+                                  }
+                                }
+                                fields(first: 20) {
+                                  nodes {
+                                    ... on ProjectV2SingleSelectField {
+                                      id
+                                      name
+                                      options {
+                                        id
+                                        name
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      `;
+
+                      const projectResult = await github.graphql(projectQuery, {
+                        owner: context.repo.owner
+                      });
+
+                      const project = projectResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
+                      if (project) {
+                        const projectItem = project.items.nodes.find(i =>
+                          i.content && i.content.id === childIssue.data.node_id
+                        );
+
+                        if (projectItem) {
+                          const typeField = project.fields.nodes.find(f => f.name === 'Type');
+                          if (typeField) {
+                            const typeOption = typeField.options.find(o => o.name === childType);
+                            if (typeOption) {
+                              const updateMutation = `
+                                mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
+                                  updateProjectV2ItemFieldValue(input: {
+                                    projectId: $projectId
+                                    itemId: $itemId
+                                    fieldId: $fieldId
+                                    value: $value
+                                  }) {
+                                    projectV2Item { id }
+                                  }
+                                }
+                              `;
+
+                              await github.graphql(updateMutation, {
+                                projectId: project.id,
+                                itemId: projectItem.id,
+                                fieldId: typeField.id,
+                                value: { singleSelectOptionId: typeOption.id }
+                              });
+
+                              console.log(`${indent}  ✅ Set project Type to "${childType}" for ${childRepoLabel}`);
+                            }
+                          }
+                        }
+                      }
+                    } catch (projectError) {
+                      console.log(`${indent}  ⚠️  Could not set project type: ${projectError.message}`);
+                    }
+                  }
+
+                  // Recursively update grandchildren (including cross-repo)
+                  await updateDescendantsTypes(childNumber, depth + 1, updatedIssues, childOwner, childRepo);
+
+                } catch (error) {
+                  if (error.status === 410) {
+                    console.log(`${indent}⚠️  ${childRepoLabel} was deleted, skipping`);
+                  } else if (error.status === 404) {
+                    console.log(`${indent}⚠️  ${childRepoLabel} not found or not accessible, skipping`);
+                  } else {
+                    console.log(`${indent}❌ Error processing ${childRepoLabel}: ${error.message}`);
+                  }
+                }
+              }
+
+              return updatedIssues;
+            }
+
             // Determine issue type from title prefix
             let issueType = null;
             if (issueTitle.startsWith('[EPIC]')) {
@@ -1421,6 +1571,14 @@ jobs:
                 }
               } catch (error) {
                 console.log(`⚠️  Error checking for new children: ${error.message}`);
+              }
+
+              // Recursively set types for all descendants
+              console.log(`\n🏷️  Checking types for all descendants...`);
+              try {
+                await updateDescendantsTypes(issueNumber);
+              } catch (error) {
+                console.log(`⚠️  Error updating descendant types: ${error.message}`);
               }
             }
 
