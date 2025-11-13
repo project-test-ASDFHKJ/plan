@@ -89,6 +89,62 @@ jobs:
               return [];
             }
 
+            async function closeAllDescendants(parentNumber, depth = 0, closedIssues = new Set()) {
+              const indent = '  '.repeat(depth);
+              console.log(`${indent}🔒 Closing all descendants of #${parentNumber}...`);
+
+              const children = await findChildIssues(parentNumber);
+
+              for (const child of children) {
+                const childOwner = child.repository?.owner?.login || context.repo.owner;
+                const childRepo = child.repository?.name || context.repo.repo;
+                const childNumber = child.number;
+                const isCrossRepo = childRepo !== context.repo.repo || childOwner !== context.repo.owner;
+                const repoLabel = isCrossRepo ? `${childOwner}/${childRepo}#${childNumber}` : `#${childNumber}`;
+                const issueKey = `${childOwner}/${childRepo}#${childNumber}`;
+
+                if (closedIssues.has(issueKey)) {
+                  console.log(`${indent}⏭️  Skipping ${repoLabel} (already processed)`);
+                  continue;
+                }
+
+                closedIssues.add(issueKey);
+
+                try {
+                  if (child.state === 'open') {
+                    console.log(`${indent}🔒 Closing ${repoLabel}: ${child.title}`);
+
+                    await github.rest.issues.update({
+                      owner: childOwner,
+                      repo: childRepo,
+                      issue_number: childNumber,
+                      state: 'closed',
+                      state_reason: 'completed'
+                    });
+
+                    console.log(`${indent}✅ Closed ${repoLabel}`);
+
+                    // Recursively close grandchildren (including cross-repo)
+                    await closeAllDescendants(childNumber, depth + 1, closedIssues);
+                  } else {
+                    console.log(`${indent}⏭️  ${repoLabel} already closed`);
+                  }
+                } catch (error) {
+                  if (error.status === 410) {
+                    console.log(`${indent}⚠️  ${repoLabel} was deleted, skipping`);
+                  } else if (error.status === 404) {
+                    console.log(`${indent}⚠️  ${repoLabel} not found or not accessible, skipping`);
+                  } else if (error.status === 403) {
+                    console.log(`${indent}⚠️  No permission to close ${repoLabel}, skipping`);
+                  } else {
+                    console.log(`${indent}❌ Error closing ${repoLabel}: ${error.message}`);
+                  }
+                }
+              }
+
+              return closedIssues;
+            }
+
             async function updateDescendantsMilestone(parentNumber, milestone, depth = 0, updatedIssues = new Set()) {
               const indent = '  '.repeat(depth);
               console.log(`${indent}Checking descendants of #${parentNumber}...`);
@@ -1159,6 +1215,18 @@ jobs:
             // ========================================
 
             if (actionType === 'closed' || actionType === 'reopened') {
+              // First: If this issue was closed, close all its descendants
+              if (actionType === 'closed') {
+                console.log(`\n🔒 Parent issue #${issueNumber} closed - closing all descendants...`);
+                const closedDescendants = await closeAllDescendants(issueNumber);
+                if (closedDescendants.size > 0) {
+                  console.log(`✅ Closed ${closedDescendants.size} descendant issue(s)`);
+                } else {
+                  console.log('ℹ️  No open descendants to close');
+                }
+              }
+
+              // Second: Sync parent state based on children state
               console.log(`\n🔄 Issue #${issueNumber} was ${actionType}, syncing parent state...`);
 
               // Function to sync parent state based on all children
