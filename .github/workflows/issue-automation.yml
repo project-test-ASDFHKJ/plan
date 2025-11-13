@@ -969,6 +969,30 @@ jobs:
                         // The milestone and label cascade will handle copying those
                         // We just need to ensure it's in the project with correct Type
 
+                        // Set organization-level issue type for cross-repo issues
+                        if (isCrossRepo) {
+                          const childTitle = childIssue.data.title;
+                          let childType = null;
+                          if (childTitle.startsWith('[EPIC]')) childType = 'Epic';
+                          else if (childTitle.startsWith('[FEATURE]')) childType = 'Feature';
+                          else if (childTitle.startsWith('[STORY]')) childType = 'User Story';
+                          else if (childTitle.startsWith('[TASK]') || childTitle.startsWith('[Task]')) childType = 'Task';
+
+                          if (childType) {
+                            try {
+                              await github.rest.issues.update({
+                                owner: childOwner,
+                                repo: childRepo,
+                                issue_number: childNumber,
+                                issue_type: childType
+                              });
+                              console.log('  ✅ Set organization Issue Type to "' + childType + '" for ' + repoLabel);
+                            } catch (typeError) {
+                              console.log('  ⚠️  Could not set issue type for ' + repoLabel + ': ' + typeError.message);
+                            }
+                          }
+                        }
+
                         if (needsProjectSetup && project) {
                           // Add to project
                           const addMutation = `
@@ -988,7 +1012,7 @@ jobs:
 
                           console.log(`  ✅ Added ${repoLabel} to project`);
 
-                          // Set Type field based on title
+                          // Set project Type field based on title
                           const childTitle = childIssue.data.title;
                           let childType = null;
                           if (childTitle.startsWith('[EPIC]')) childType = 'Epic';
