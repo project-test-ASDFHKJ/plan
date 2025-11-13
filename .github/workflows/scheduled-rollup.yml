@@ -101,8 +101,8 @@ jobs:
 
               const projects = projectResult.organization.projectsV2.nodes;
 
-              // Find the specific project "EngageMe"
-              const project = projects.find(p => p.title === 'EngageMe');
+              // Find the specific project "[TEMPLATE] EngageMe"
+              const project = projects.find(p => p.title === '[TEMPLATE] EngageMe');
 
               if (!project) {
                 return null;
@@ -205,7 +205,7 @@ jobs:
               owner: context.repo.owner
             });
 
-            const targetProject = projectItemsResult.organization.projectsV2.nodes.find(p => p.title === 'EngageMe');
+            const targetProject = projectItemsResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
             if (!targetProject) {
               console.log('❌ Project not found');
               return;

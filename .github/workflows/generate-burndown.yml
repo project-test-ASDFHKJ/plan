@@ -131,10 +131,10 @@ jobs:
               });
 
               const projects = projectResult.organization.projectsV2.nodes;
-              const project = projects.find(p => p.title === 'EngageMe');
+              const project = projects.find(p => p.title === '[TEMPLATE] EngageMe');
 
               if (!project) {
-                throw new Error('EngageMe project not found');
+                throw new Error('[TEMPLATE] EngageMe project not found');
               }
 
               return project;
@@ -441,7 +441,7 @@ jobs:
 
             let markdown = `# Burndown Report\n\n`;
             markdown += `**Generated:** ${dateStr} at ${timeStr} UTC\n\n`;
-            markdown += `**Project:** EngageMe\n\n`;
+            markdown += `**Project:** [TEMPLATE] EngageMe\n\n`;
             markdown += `---\n\n`;
 
             if (iterationStats.length === 0) {

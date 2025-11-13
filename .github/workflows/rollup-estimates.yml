@@ -271,11 +271,11 @@ jobs:
 
               const projects = projectResult.organization.projectsV2.nodes;
 
-              // Find the specific project "EngageMe"
-              const project = projects.find(p => p.title === 'EngageMe');
+              // Find the specific project "[TEMPLATE] EngageMe"
+              const project = projects.find(p => p.title === '[TEMPLATE] EngageMe');
 
               if (!project) {
-                console.log(`⚠️  Issue #${issueNumber} - EngageMe project not found`);
+                console.log(`⚠️  Issue #${issueNumber} - [TEMPLATE] EngageMe project not found`);
                 return null;
               }
 

@@ -382,7 +382,7 @@ jobs:
                         owner: context.repo.owner
                       });
 
-                      const project = projectResult.organization.projectsV2.nodes.find(p => p.title === 'EngageMe');
+                      const project = projectResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
                       if (project) {
                         const projectItem = project.items.nodes.find(i =>
                           i.content && i.content.id === childIssue.data.node_id
@@ -503,7 +503,7 @@ jobs:
                   owner: context.repo.owner
                 });
 
-                const parentIterProject = parentIterResult.organization.projectsV2.nodes.find(p => p.title === 'EngageMe');
+                const parentIterProject = parentIterResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
                 if (parentIterProject) {
                   // Find the parent issue's item in the project
                   const parentItem = parentIterProject.items.nodes.find(i => {
@@ -591,7 +591,7 @@ jobs:
                     owner: context.repo.owner
                   });
 
-                  const childProject = childItemResult.organization.projectsV2.nodes.find(p => p.title === 'EngageMe');
+                  const childProject = childItemResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
                   if (childProject) {
                     const childProjectItem = childProject.items.nodes.find(i =>
                       i.content && i.content.id === childIssue.data.node_id
@@ -844,11 +844,11 @@ jobs:
                 const projects = projectsResult.organization.projectsV2.nodes;
                 console.log(`Found ${projects.length} project(s)`);
 
-                // Find the specific project "EngageMe"
-                const project = projects.find(p => p.title === 'EngageMe');
+                // Find the specific project "[TEMPLATE] EngageMe"
+                const project = projects.find(p => p.title === '[TEMPLATE] EngageMe');
 
                 if (!project) {
-                  console.log('⚠️  EngageMe project not found');
+                  console.log('⚠️  [TEMPLATE] EngageMe project not found');
                 } else {
                   console.log(`Processing project: ${project.title}`);
 
@@ -910,7 +910,7 @@ jobs:
                       owner: context.repo.owner
                     });
 
-                    const targetProject = projectResult.organization.projectsV2.nodes.find(p => p.title === 'EngageMe');
+                    const targetProject = projectResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
                     if (targetProject) {
                       const item = targetProject.items.nodes.find(i => i.content && i.content.number === issueNumber);
                       if (item) {
@@ -1036,7 +1036,7 @@ jobs:
                 });
 
                 const childProjects = childProjectResult.organization.projectsV2.nodes;
-                const childProject = childProjects.find(p => p.title === 'EngageMe');
+                const childProject = childProjects.find(p => p.title === '[TEMPLATE] EngageMe');
 
                 if (!childProject) {
                   console.log('Child issue not in project yet, skipping iteration inheritance');
@@ -1098,7 +1098,7 @@ jobs:
                   });
 
                   const projects = result.organization.projectsV2.nodes;
-                  const project = projects.find(p => p.title === 'EngageMe');
+                  const project = projects.find(p => p.title === '[TEMPLATE] EngageMe');
 
                   if (!project) return null;
 
@@ -1234,7 +1234,7 @@ jobs:
                 });
 
                 const projects = projectResult.organization.projectsV2.nodes;
-                const project = projects.find(p => p.title === 'EngageMe');
+                const project = projects.find(p => p.title === '[TEMPLATE] EngageMe');
 
                 if (project) {
                   const item = project.items.nodes.find(i => i.content && i.content.number === issueNumber);
@@ -1291,7 +1291,7 @@ jobs:
                     console.log('ℹ️  Issue not found in project, skipping validation');
                   }
                 } else {
-                  console.log('ℹ️  EngageMe project not found, skipping validation');
+                  console.log('ℹ️  [TEMPLATE] EngageMe project not found, skipping validation');
                 }
               } catch (error) {
                 console.error('Error during validation:', error.message);
@@ -1364,7 +1364,7 @@ jobs:
                         owner: context.repo.owner
                       });
 
-                      const project = projectsResult.organization.projectsV2.nodes.find(p => p.title === 'EngageMe');
+                      const project = projectsResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
 
                       if (project) {
                         const isInProject = project.items.nodes.some(item =>
@@ -1542,7 +1542,7 @@ jobs:
                               owner: context.repo.owner
                             });
 
-                            const parentIterProject = parentIterResult.organization.projectsV2.nodes.find(p => p.title === 'EngageMe');
+                            const parentIterProject = parentIterResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
                             if (parentIterProject) {
                               const parentItem = parentIterProject.items.nodes.find(i =>
                                 i.content && i.content.number === issueNumber
@@ -1638,7 +1638,7 @@ jobs:
                               owner: context.repo.owner
                             });
 
-                            const childItemProject = childItemResult.organization.projectsV2.nodes.find(p => p.title === 'EngageMe');
+                            const childItemProject = childItemResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
                             if (childItemProject) {
                               const childProjectItem = childItemProject.items.nodes.find(i =>
                                 i.content && i.content.id === childIssue.data.node_id
@@ -1717,7 +1717,7 @@ jobs:
                                   owner: context.repo.owner
                                 });
 
-                                const parentIterProject = parentIterResult.organization.projectsV2.nodes.find(p => p.title === 'EngageMe');
+                                const parentIterProject = parentIterResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
                                 if (parentIterProject) {
                                   const parentItem = parentIterProject.items.nodes.find(i =>
                                     i.content && i.content.number === issueNumber
@@ -2049,7 +2049,7 @@ jobs:
                           owner: context.repo.owner
                         });
 
-                        const childProject = childProjResult.organization.projectsV2.nodes.find(p => p.title === 'EngageMe');
+                        const childProject = childProjResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
                         if (childProject) {
                           const childItem = childProject.items.nodes.find(i => {
                             if (!i.content) return false;
@@ -2118,7 +2118,7 @@ jobs:
                         owner: context.repo.owner
                       });
 
-                      const parentProject = parentProjResult.organization.projectsV2.nodes.find(p => p.title === 'EngageMe');
+                      const parentProject = parentProjResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
                       if (parentProject) {
                         const parentItem = parentProject.items.nodes.find(i =>
                           i.content && i.content.number === parent.number
