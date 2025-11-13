@@ -49,47 +49,60 @@ jobs:
 
             console.log(`Processing issue #${issueNumber}`);
 
-            // Function to find all child issues
+            // Function to find all child issues (supports cross-repository)
             async function findChildIssues(parentNumber) {
-              const allIssues = [];
-              let page = 1;
-              let hasMore = true;
+              console.log(`🔍 Looking for children of issue #${parentNumber}...`);
 
-              while (hasMore) {
-                const issues = await github.rest.issues.listForRepo({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  state: 'all',
-                  per_page: 100,
-                  page: page
-                });
+              // Use GraphQL to get sub-issues (supports cross-repository relationships)
+              try {
+                const graphqlQuery = `
+                  query {
+                    repository(owner: "${context.repo.owner}", name: "${context.repo.repo}") {
+                      issue(number: ${parentNumber}) {
+                        trackedIssues(first: 100) {
+                          nodes {
+                            number
+                            repository {
+                              name
+                              owner {
+                                login
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                `;
 
-                if (issues.data.length === 0) {
-                  hasMore = false;
-                } else {
-                  allIssues.push(...issues.data);
-                  page++;
+                const result = await github.graphql(graphqlQuery);
+                const children = result.repository.issue.trackedIssues.nodes;
+
+                if (children && children.length > 0) {
+                  // Log with repo info for cross-repo children
+                  const childLabels = children.map(c => {
+                    if (c.repository.name !== context.repo.repo) {
+                      return `${c.repository.name}#${c.number}`;
+                    }
+                    return `#${c.number}`;
+                  }).join(', ');
+
+                  console.log(`Found ${children.length} child issue(s): ${childLabels}`);
+                  return children; // Return full objects with repository info
                 }
+              } catch (error) {
+                console.log(`Could not get sub-issues from GraphQL: ${error.message}`);
               }
 
-              // Filter issues that reference this issue as parent
-              const children = allIssues.filter(issue => {
-                const body = issue.body || '';
-                // Remove HTML comments to avoid matching examples
-                const bodyWithoutComments = body.replace(/<!--[\s\S]*?-->/g, '');
-                const parentPattern = new RegExp(`(?:Epic|Feature|Parent Feature|Parent Epic):\\s*#${parentNumber}(?:\\s|$)`, 'i');
-                return parentPattern.test(bodyWithoutComments);
-              });
-
-              console.log(`Found ${children.length} child issue(s) of #${parentNumber}`);
-              return children;
+              console.log('No children found');
+              return [];
             }
 
-            // Function to get project item and iteration for an issue
-            async function getProjectIteration(issueNumber) {
+            // Function to get project item and iteration for an issue (supports cross-repo)
+            async function getProjectIteration(issueNumber, owner = context.repo.owner, repo = context.repo.repo) {
               const issue = await github.rest.issues.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
+                owner: owner,
+                repo: repo,
                 issue_number: issueNumber
               });
 
@@ -232,19 +245,25 @@ jobs:
               const children = await findChildIssues(parentNumber);
 
               for (const child of children) {
+                // Extract repository info for cross-repo support
+                const childOwner = child.repository?.owner?.login || context.repo.owner;
+                const childRepo = child.repository?.name || context.repo.repo;
+                const childNumber = child.number;
+                const repoLabel = childRepo !== context.repo.repo ? `${childRepo}#${childNumber}` : `#${childNumber}`;
+
                 // Avoid infinite loops
-                if (updatedIssues.has(child.number)) {
-                  console.log(`${indent}⏭️  Skipping #${child.number} (already processed)`);
+                if (updatedIssues.has(childNumber)) {
+                  console.log(`${indent}⏭️  Skipping ${repoLabel} (already processed)`);
                   continue;
                 }
 
-                updatedIssues.add(child.number);
+                updatedIssues.add(childNumber);
 
                 // Get child's project info
-                const childProjectInfo = await getProjectIteration(child.number);
+                const childProjectInfo = await getProjectIteration(childNumber, childOwner, childRepo);
 
                 if (!childProjectInfo) {
-                  console.log(`${indent}⚠️  #${child.number} not found in any project`);
+                  console.log(`${indent}⚠️  ${repoLabel} not found in any project`);
                   continue;
                 }
 
@@ -252,7 +271,7 @@ jobs:
                 const targetIteration = iteration?.title || 'none';
 
                 if (currentIteration !== targetIteration) {
-                  console.log(`${indent}📝 Updating #${child.number} iteration from "${currentIteration}" to "${targetIteration}"`);
+                  console.log(`${indent}📝 Updating ${repoLabel} iteration from "${currentIteration}" to "${targetIteration}"`);
 
                   try {
                     if (iteration && iteration.id) {
@@ -262,19 +281,19 @@ jobs:
                         childProjectInfo.iterationField.id,
                         iteration.id
                       );
-                      console.log(`${indent}✅ Updated #${child.number}`);
+                      console.log(`${indent}✅ Updated ${repoLabel}`);
                     } else {
-                      console.log(`${indent}ℹ️  No iteration to set on #${child.number}`);
+                      console.log(`${indent}ℹ️  No iteration to set on ${repoLabel}`);
                     }
                   } catch (error) {
-                    console.error(`${indent}Error updating #${child.number}:`, error.message);
+                    console.error(`${indent}Error updating ${repoLabel}:`, error.message);
                   }
                 } else {
-                  console.log(`${indent}⏭️  #${child.number} already has correct iteration`);
+                  console.log(`${indent}⏭️  ${repoLabel} already has correct iteration`);
                 }
 
                 // Recursively update grandchildren
-                await updateDescendantsIteration(child.number, iteration, depth + 1, updatedIssues);
+                await updateDescendantsIteration(childNumber, iteration, depth + 1, updatedIssues);
               }
 
               return updatedIssues;

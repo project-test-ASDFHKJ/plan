@@ -33,60 +33,81 @@ jobs:
             const issueBody = context.payload.issue.body || '';
             const issueTitle = context.payload.issue.title || '';
 
-            // Function to find all child issues (issues that reference this issue as parent)
+            // Function to find all child issues (supports cross-repository)
             async function findChildIssues(parentNumber) {
               console.log(`🔍 Looking for children of issue #${parentNumber}...`);
 
-              // Method 1: Check GitHub's native sub-issues using REST API
-              // GraphQL trackedIssues doesn't work, but REST API sub_issues does!
+              // Use GraphQL to get tracked issues (supports cross-repository relationships)
               try {
-                const response = await github.request('GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues', {
+                const graphqlQuery = `
+                  query($owner: String!, $repo: String!, $issueNumber: Int!) {
+                    repository(owner: $owner, name: $repo) {
+                      issue(number: $issueNumber) {
+                        trackedIssues(first: 100) {
+                          nodes {
+                            id
+                            number
+                            state
+                            title
+                            milestone {
+                              number
+                              title
+                            }
+                            labels(first: 20) {
+                              nodes {
+                                name
+                              }
+                            }
+                            repository {
+                              name
+                              owner {
+                                login
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                `;
+
+                const result = await github.graphql(graphqlQuery, {
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  issue_number: parentNumber
+                  issueNumber: parentNumber
                 });
 
-                if (response.data && response.data.length > 0) {
-                  console.log(`✅ Found ${response.data.length} child issue(s) via REST API sub-issues`);
-                  return response.data;
+                const children = result.repository.issue.trackedIssues.nodes;
+
+                if (children && children.length > 0) {
+                  // Log with repo info for cross-repo children
+                  const childLabels = children.map(c => {
+                    const repo = c.repository?.name || context.repo.repo;
+                    const owner = c.repository?.owner?.login || context.repo.owner;
+                    if (repo !== context.repo.repo || owner !== context.repo.owner) {
+                      return `${owner}/${repo}#${c.number}`;
+                    }
+                    return `#${c.number}`;
+                  }).join(', ');
+
+                  console.log(`✅ Found ${children.length} child issue(s) via GraphQL: ${childLabels}`);
+
+                  // Ensure repository info exists, default to current repo if missing
+                  return children.map(child => ({
+                    ...child,
+                    repository: child.repository || {
+                      name: context.repo.repo,
+                      owner: { login: context.repo.owner }
+                    }
+                  }));
                 }
               } catch (error) {
-                console.log(`⚠️  Could not get sub-issues from REST API: ${error.message}`);
+                console.log(`⚠️  Could not get tracked issues from GraphQL: ${error.message}`);
+                console.log('This may happen if the issue has no children or GraphQL access is limited');
               }
 
-
-              // Method 2: Fall back to description parsing
-              console.log('🔄 Falling back to description parsing...');
-              const allIssues = [];
-              let page = 1;
-              let hasMore = true;
-
-              while (hasMore) {
-                const issues = await github.rest.issues.listForRepo({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  state: 'all',
-                  per_page: 100,
-                  page: page
-                });
-
-                if (issues.data.length === 0) {
-                  hasMore = false;
-                } else {
-                  allIssues.push(...issues.data);
-                  page++;
-                }
-              }
-
-              const children = allIssues.filter(issue => {
-                const body = issue.body || '';
-                const bodyWithoutComments = body.replace(/<!--[\s\S]*?-->/g, '');
-                const parentPattern = new RegExp(`(?:Epic|Feature|Parent Feature|Parent Epic):\\s*#${parentNumber}(?:\\s|$)`, 'i');
-                return parentPattern.test(bodyWithoutComments);
-              });
-
-              console.log(`Found ${children.length} child issue(s) via description parsing`);
-              return children;
+              console.log('No children found');
+              return [];
             }
 
             async function updateDescendantsMilestone(parentNumber, milestone, depth = 0, updatedIssues = new Set()) {
@@ -96,34 +117,60 @@ jobs:
               const children = await findChildIssues(parentNumber);
 
               for (const child of children) {
+                // Extract repository info for cross-repo support
+                const childOwner = child.repository?.owner?.login || context.repo.owner;
+                const childRepo = child.repository?.name || context.repo.repo;
+                const childNumber = child.number;
+                const isCrossRepo = childRepo !== context.repo.repo || childOwner !== context.repo.owner;
+                const repoLabel = isCrossRepo ? `${childOwner}/${childRepo}#${childNumber}` : `#${childNumber}`;
+
+                // Create unique key for cross-repo tracking
+                const issueKey = `${childOwner}/${childRepo}#${childNumber}`;
+
                 // Avoid infinite loops
-                if (updatedIssues.has(child.number)) {
-                  console.log(`${indent}⏭️  Skipping #${child.number} (already processed)`);
+                if (updatedIssues.has(issueKey)) {
+                  console.log(`${indent}⏭️  Skipping ${repoLabel} (already processed)`);
                   continue;
                 }
 
-                updatedIssues.add(child.number);
+                updatedIssues.add(issueKey);
 
-                const currentMilestone = child.milestone ? child.milestone.number : null;
-                const targetMilestone = milestone ? milestone.number : null;
+                try {
+                  const currentMilestone = child.milestone ? child.milestone.number : null;
+                  const targetMilestone = milestone ? milestone.number : null;
 
-                if (currentMilestone !== targetMilestone) {
-                  console.log(`${indent}📝 Updating #${child.number} milestone from "${child.milestone?.title || 'none'}" to "${milestone?.title || 'none'}"`);
+                  if (currentMilestone !== targetMilestone) {
+                    console.log(`${indent}📝 Updating ${repoLabel} milestone from "${child.milestone?.title || 'none'}" to "${milestone?.title || 'none'}"`);
 
-                  await github.rest.issues.update({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: child.number,
-                    milestone: targetMilestone
-                  });
+                    await github.rest.issues.update({
+                      owner: childOwner,
+                      repo: childRepo,
+                      issue_number: childNumber,
+                      milestone: targetMilestone
+                    });
 
-                  console.log(`${indent}✅ Updated #${child.number}`);
-                } else {
-                  console.log(`${indent}⏭️  #${child.number} already has correct milestone`);
+                    console.log(`${indent}✅ Updated ${repoLabel}`);
+                  } else {
+                    console.log(`${indent}⏭️  ${repoLabel} already has correct milestone`);
+                  }
+
+                  // Recursively update grandchildren (only for same-repo to avoid deep cross-repo recursion)
+                  if (!isCrossRepo) {
+                    await updateDescendantsMilestone(childNumber, milestone, depth + 1, updatedIssues);
+                  } else {
+                    console.log(`${indent}ℹ️  Skipping grandchildren check for cross-repo issue ${repoLabel}`);
+                  }
+                } catch (error) {
+                  if (error.status === 410) {
+                    console.log(`${indent}⚠️  ${repoLabel} was deleted, skipping`);
+                  } else if (error.status === 404) {
+                    console.log(`${indent}⚠️  ${repoLabel} not found or not accessible, skipping`);
+                  } else if (error.status === 403) {
+                    console.log(`${indent}⚠️  No permission to update ${repoLabel}, skipping`);
+                  } else {
+                    console.log(`${indent}❌ Error updating ${repoLabel}: ${error.message}`);
+                  }
                 }
-
-                // Recursively update grandchildren
-                await updateDescendantsMilestone(child.number, milestone, depth + 1, updatedIssues);
               }
 
               return updatedIssues;
@@ -137,54 +184,69 @@ jobs:
               const children = await findChildIssues(parentNumber);
 
               for (const child of children) {
+                // Extract repository info for cross-repo support
+                const childOwner = child.repository?.owner?.login || context.repo.owner;
+                const childRepo = child.repository?.name || context.repo.repo;
+                const childNumber = child.number;
+                const isCrossRepo = childRepo !== context.repo.repo || childOwner !== context.repo.owner;
+                const repoLabel = isCrossRepo ? `${childOwner}/${childRepo}#${childNumber}` : `#${childNumber}`;
+
+                // Create unique key for cross-repo tracking
+                const issueKey = `${childOwner}/${childRepo}#${childNumber}`;
+
                 // Avoid infinite loops
-                if (updatedIssues.has(child.number)) {
-                  console.log(`${indent}⏭️  Skipping #${child.number} (already processed)`);
+                if (updatedIssues.has(issueKey)) {
+                  console.log(`${indent}⏭️  Skipping ${repoLabel} (already processed)`);
                   continue;
                 }
 
-                updatedIssues.add(child.number);
+                updatedIssues.add(issueKey);
 
                 try {
                   if (operation === 'add') {
-                    // Check if child already has the label
-                    const childIssue = await github.rest.issues.get({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      issue_number: child.number
-                    });
-
-                    const hasLabel = childIssue.data.labels.some(l => l.name === labelName);
+                    // Check if child already has the label (from GraphQL response)
+                    const hasLabel = child.labels && child.labels.nodes && child.labels.nodes.some(l => l.name === labelName);
 
                     if (!hasLabel) {
-                      console.log(`${indent}🏷️  Adding label "${labelName}" to #${child.number}`);
+                      console.log(`${indent}🏷️  Adding label "${labelName}" to ${repoLabel}`);
                       await github.rest.issues.addLabels({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        issue_number: child.number,
+                        owner: childOwner,
+                        repo: childRepo,
+                        issue_number: childNumber,
                         labels: [labelName]
                       });
-                      console.log(`${indent}✅ Added label to #${child.number}`);
+                      console.log(`${indent}✅ Added label to ${repoLabel}`);
                     } else {
-                      console.log(`${indent}⏭️  #${child.number} already has label "${labelName}"`);
+                      console.log(`${indent}⏭️  ${repoLabel} already has label "${labelName}"`);
                     }
                   } else if (operation === 'remove') {
-                    console.log(`${indent}🗑️  Removing label "${labelName}" from #${child.number}`);
+                    console.log(`${indent}🗑️  Removing label "${labelName}" from ${repoLabel}`);
                     await github.rest.issues.removeLabel({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      issue_number: child.number,
+                      owner: childOwner,
+                      repo: childRepo,
+                      issue_number: childNumber,
                       name: labelName
                     });
-                    console.log(`${indent}✅ Removed label from #${child.number}`);
+                    console.log(`${indent}✅ Removed label from ${repoLabel}`);
                   }
                 } catch (error) {
-                  // Ignore errors (label might not exist, etc.)
-                  console.log(`${indent}⚠️  Could not ${operation} label on #${child.number}: ${error.message}`);
+                  if (error.status === 410) {
+                    console.log(`${indent}⚠️  ${repoLabel} was deleted, skipping`);
+                  } else if (error.status === 404) {
+                    console.log(`${indent}⚠️  ${repoLabel} or label not found, skipping`);
+                  } else if (error.status === 403) {
+                    console.log(`${indent}⚠️  No permission to update ${repoLabel}, skipping`);
+                  } else {
+                    console.log(`${indent}⚠️  Could not ${operation} label on ${repoLabel}: ${error.message}`);
+                  }
                 }
 
-                // Recursively update grandchildren
-                await updateDescendantsLabels(child.number, labelName, operation, depth + 1, updatedIssues);
+                // Recursively update grandchildren (only for same-repo)
+                if (!isCrossRepo) {
+                  await updateDescendantsLabels(childNumber, labelName, operation, depth + 1, updatedIssues);
+                } else {
+                  console.log(`${indent}ℹ️  Skipping grandchildren check for cross-repo issue ${repoLabel}`);
+                }
               }
 
               return updatedIssues;
@@ -846,9 +908,190 @@ jobs:
               }
             }
 
-            // Cascade milestone updates to all descendants
-            const currentMilestone = context.payload.issue.milestone;
+            // ========================================
+            // Process new children when added (on 'edited' event)
+            // ========================================
             const actionType = context.payload.action;
+
+            if (actionType === 'edited') {
+              console.log(`\n🔍 Checking for newly added child issues...`);
+
+              try {
+                const children = await findChildIssues(issueNumber);
+
+                if (children && children.length > 0) {
+                  console.log(`Found ${children.length} child issue(s), checking which need full setup...`);
+
+                  for (const child of children) {
+                    const childOwner = child.repository?.owner?.login || context.repo.owner;
+                    const childRepo = child.repository?.name || context.repo.repo;
+                    const childNumber = child.number;
+                    const isCrossRepo = childRepo !== context.repo.repo || childOwner !== context.repo.owner;
+                    const repoLabel = isCrossRepo ? `${childOwner}/${childRepo}#${childNumber}` : `#${childNumber}`;
+
+                    try {
+                      // Get child issue details to check if it needs setup
+                      const childIssue = await github.rest.issues.get({
+                        owner: childOwner,
+                        repo: childRepo,
+                        issue_number: childNumber
+                      });
+
+                      console.log(`\n📋 Processing child ${repoLabel}: ${childIssue.data.title}`);
+
+                      // Check if child is in project
+                      let needsProjectSetup = false;
+                      const projectQuery = `
+                        query($owner: String!) {
+                          organization(login: $owner) {
+                            projectsV2(first: 10) {
+                              nodes {
+                                id
+                                title
+                                items(first: 100) {
+                                  nodes {
+                                    content {
+                                      ... on Issue {
+                                        id
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      `;
+
+                      const projectsResult = await github.graphql(projectQuery, {
+                        owner: context.repo.owner
+                      });
+
+                      const project = projectsResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
+
+                      if (project) {
+                        const isInProject = project.items.nodes.some(item =>
+                          item.content && item.content.id === childIssue.data.node_id
+                        );
+
+                        if (!isInProject) {
+                          needsProjectSetup = true;
+                          console.log(`  ➕ ${repoLabel} not in project, will add and configure`);
+                        } else {
+                          console.log(`  ✓ ${repoLabel} already in project`);
+                        }
+                      }
+
+                      // Apply full setup if child needs it (especially for cross-repo issues)
+                      if (needsProjectSetup || isCrossRepo) {
+                        console.log(`  🔧 Applying full automation to ${repoLabel}...`);
+
+                        // This child needs full setup - will be handled by cascade operations below
+                        // The milestone and label cascade will handle copying those
+                        // We just need to ensure it's in the project with correct Type
+
+                        if (needsProjectSetup && project) {
+                          // Add to project
+                          const addMutation = `
+                            mutation($projectId: ID!, $contentId: ID!) {
+                              addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
+                                item {
+                                  id
+                                }
+                              }
+                            }
+                          `;
+
+                          const addResult = await github.graphql(addMutation, {
+                            projectId: project.id,
+                            contentId: childIssue.data.node_id
+                          });
+
+                          console.log(`  ✅ Added ${repoLabel} to project`);
+
+                          // Set Type field based on title
+                          const childTitle = childIssue.data.title;
+                          let childType = null;
+                          if (childTitle.startsWith('[EPIC]')) childType = 'Epic';
+                          else if (childTitle.startsWith('[FEATURE]')) childType = 'Feature';
+                          else if (childTitle.startsWith('[STORY]')) childType = 'User Story';
+                          else if (childTitle.startsWith('[TASK]') || childTitle.startsWith('[Task]')) childType = 'Task';
+
+                          if (childType) {
+                            const fieldsQuery = `
+                              query($projectId: ID!) {
+                                node(id: $projectId) {
+                                  ... on ProjectV2 {
+                                    fields(first: 20) {
+                                      nodes {
+                                        ... on ProjectV2SingleSelectField {
+                                          id
+                                          name
+                                          options {
+                                            id
+                                            name
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            `;
+
+                            const fieldsResult = await github.graphql(fieldsQuery, { projectId: project.id });
+                            const typeField = fieldsResult.node.fields.nodes.find(f => f.name === 'Type');
+
+                            if (typeField) {
+                              const typeOption = typeField.options.find(o => o.name === childType);
+                              if (typeOption) {
+                                const updateMutation = `
+                                  mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
+                                    updateProjectV2ItemFieldValue(input: {
+                                      projectId: $projectId
+                                      itemId: $itemId
+                                      fieldId: $fieldId
+                                      value: $value
+                                    }) {
+                                      projectV2Item { id }
+                                    }
+                                  }
+                                `;
+
+                                await github.graphql(updateMutation, {
+                                  projectId: project.id,
+                                  itemId: addResult.addProjectV2ItemById.item.id,
+                                  fieldId: typeField.id,
+                                  value: { singleSelectOptionId: typeOption.id }
+                                });
+
+                                console.log(`  ✅ Set Type to "${childType}" for ${repoLabel}`);
+                              }
+                            }
+                          }
+                        }
+                      }
+
+                    } catch (error) {
+                      if (error.status === 410) {
+                        console.log(`  ⚠️  ${repoLabel} was deleted, skipping`);
+                      } else if (error.status === 404) {
+                        console.log(`  ⚠️  ${repoLabel} not found or not accessible, skipping`);
+                      } else {
+                        console.log(`  ❌ Error processing ${repoLabel}: ${error.message}`);
+                      }
+                    }
+                  }
+                }
+              } catch (error) {
+                console.log(`⚠️  Error checking for new children: ${error.message}`);
+              }
+            }
+
+            // ========================================
+            // Cascade milestone updates to all descendants
+            // ========================================
+            const currentMilestone = context.payload.issue.milestone;
 
             let updatedDescendants = new Set();
             if (['milestoned', 'demilestoned', 'edited'].includes(actionType)) {
