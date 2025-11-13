@@ -1030,7 +1030,7 @@ jobs:
 
                         // This child needs full setup - will be handled by cascade operations below
                         // The milestone and label cascade will handle copying those
-                        // We just need to ensure it's in the project with correct Type
+                        // We just need to ensure it's in the project with correct Type and Iteration
 
                         // Set organization-level issue type for cross-repo issues
                         if (isCrossRepo) {
@@ -1134,6 +1134,234 @@ jobs:
                                 console.log(`  ✅ Set Type to "${childType}" for ${repoLabel}`);
                               }
                             }
+                          }
+
+                          // Inherit iteration from parent
+                          console.log('  📅 Checking for parent iteration to inherit...');
+                          try {
+                            const parentIterationQuery = `
+                              query($owner: String!) {
+                                organization(login: $owner) {
+                                  projectsV2(first: 10) {
+                                    nodes {
+                                      id
+                                      title
+                                      items(first: 100) {
+                                        nodes {
+                                          content {
+                                            ... on Issue {
+                                              number
+                                            }
+                                          }
+                                          fieldValues(first: 20) {
+                                            nodes {
+                                              ... on ProjectV2ItemFieldIterationValue {
+                                                title
+                                                iterationId
+                                                field {
+                                                  ... on ProjectV2IterationField {
+                                                    id
+                                                    name
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                      fields(first: 20) {
+                                        nodes {
+                                          ... on ProjectV2IterationField {
+                                            id
+                                            name
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            `;
+
+                            const parentIterResult = await github.graphql(parentIterationQuery, {
+                              owner: context.repo.owner
+                            });
+
+                            const parentIterProject = parentIterResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
+                            if (parentIterProject) {
+                              const parentItem = parentIterProject.items.nodes.find(i =>
+                                i.content && i.content.number === issueNumber
+                              );
+
+                              if (parentItem) {
+                                const iterationValue = parentItem.fieldValues.nodes.find(fv =>
+                                  fv.field && fv.field.name === 'Iteration' && fv.iterationId
+                                );
+
+                                if (iterationValue) {
+                                  console.log('  📅 Parent has iteration: ' + iterationValue.title);
+
+                                  const iterationField = parentIterProject.fields.nodes.find(f => f.name === 'Iteration');
+
+                                  if (iterationField) {
+                                    const setIterationMutation = `
+                                      mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $iterationId: String!) {
+                                        updateProjectV2ItemFieldValue(input: {
+                                          projectId: $projectId
+                                          itemId: $itemId
+                                          fieldId: $fieldId
+                                          value: { iterationId: $iterationId }
+                                        }) {
+                                          projectV2Item { id }
+                                        }
+                                      }
+                                    `;
+
+                                    await github.graphql(setIterationMutation, {
+                                      projectId: project.id,
+                                      itemId: addResult.addProjectV2ItemById.item.id,
+                                      fieldId: iterationField.id,
+                                      iterationId: iterationValue.iterationId
+                                    });
+
+                                    console.log('  ✅ Inherited iteration "' + iterationValue.title + '" from parent');
+                                  }
+                                } else {
+                                  console.log('  ℹ️  Parent has no iteration set');
+                                }
+                              }
+                            }
+                          } catch (iterError) {
+                            console.log('  ⚠️  Could not inherit iteration: ' + iterError.message);
+                          }
+                        } else if (isCrossRepo && !needsProjectSetup && project) {
+                          // Child is already in project, but it's cross-repo - still need to set iteration
+                          console.log('  📅 Checking iteration for existing cross-repo child...');
+                          try {
+                            // Find the child's item ID in the project
+                            const childItemQuery = `
+                              query($owner: String!) {
+                                organization(login: $owner) {
+                                  projectsV2(first: 10) {
+                                    nodes {
+                                      id
+                                      title
+                                      items(first: 100) {
+                                        nodes {
+                                          id
+                                          content {
+                                            ... on Issue {
+                                              id
+                                              number
+                                            }
+                                          }
+                                        }
+                                      }
+                                      fields(first: 20) {
+                                        nodes {
+                                          ... on ProjectV2IterationField {
+                                            id
+                                            name
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            `;
+
+                            const childItemResult = await github.graphql(childItemQuery, {
+                              owner: context.repo.owner
+                            });
+
+                            const childItemProject = childItemResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
+                            if (childItemProject) {
+                              const childProjectItem = childItemProject.items.nodes.find(i =>
+                                i.content && i.content.id === childIssue.data.node_id
+                              );
+
+                              if (childProjectItem) {
+                                // Get parent's iteration
+                                const parentIterationQuery = `
+                                  query($owner: String!) {
+                                    organization(login: $owner) {
+                                      projectsV2(first: 10) {
+                                        nodes {
+                                          title
+                                          items(first: 100) {
+                                            nodes {
+                                              content {
+                                                ... on Issue {
+                                                  number
+                                                }
+                                              }
+                                              fieldValues(first: 20) {
+                                                nodes {
+                                                  ... on ProjectV2ItemFieldIterationValue {
+                                                    title
+                                                    iterationId
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                `;
+
+                                const parentIterResult = await github.graphql(parentIterationQuery, {
+                                  owner: context.repo.owner
+                                });
+
+                                const parentIterProject = parentIterResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
+                                if (parentIterProject) {
+                                  const parentItem = parentIterProject.items.nodes.find(i =>
+                                    i.content && i.content.number === issueNumber
+                                  );
+
+                                  if (parentItem) {
+                                    const iterationValue = parentItem.fieldValues.nodes.find(fv => fv.iterationId);
+
+                                    if (iterationValue) {
+                                      console.log('  📅 Parent has iteration: ' + iterationValue.title);
+
+                                      const iterationField = childItemProject.fields.nodes.find(f => f.name === 'Iteration');
+
+                                      if (iterationField) {
+                                        const setIterationMutation = `
+                                          mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $iterationId: String!) {
+                                            updateProjectV2ItemFieldValue(input: {
+                                              projectId: $projectId
+                                              itemId: $itemId
+                                              fieldId: $fieldId
+                                              value: { iterationId: $iterationId }
+                                            }) {
+                                              projectV2Item { id }
+                                            }
+                                          }
+                                        `;
+
+                                        await github.graphql(setIterationMutation, {
+                                          projectId: childItemProject.id,
+                                          itemId: childProjectItem.id,
+                                          fieldId: iterationField.id,
+                                          iterationId: iterationValue.iterationId
+                                        });
+
+                                        console.log('  ✅ Inherited iteration "' + iterationValue.title + '" from parent');
+                                      }
+                                    } else {
+                                      console.log('  ℹ️  Parent has no iteration set');
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          } catch (iterError) {
+                            console.log('  ⚠️  Could not inherit iteration: ' + iterError.message);
                           }
                         }
                       }
