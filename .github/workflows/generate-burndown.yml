@@ -26,10 +26,17 @@ jobs:
       - name: Install chart dependencies
         run: npm install chartjs-node-canvas date-fns
 
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
       - name: Generate Burndown Report
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.PAT_WITH_PROJECT_ACCESS || secrets.GITHUB_TOKEN }}
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
             console.log('📊 Burndown report generation started');
             console.log('=====================================');
@@ -124,10 +131,10 @@ jobs:
               });
 
               const projects = projectResult.organization.projectsV2.nodes;
-              const project = projects.find(p => p.title === '[TEMPLATE] EngageMe');
+              const project = projects.find(p => p.title === 'EngageMe');
 
               if (!project) {
-                throw new Error('[TEMPLATE] EngageMe project not found');
+                throw new Error('EngageMe project not found');
               }
 
               return project;
@@ -434,7 +441,7 @@ jobs:
 
             let markdown = `# Burndown Report\n\n`;
             markdown += `**Generated:** ${dateStr} at ${timeStr} UTC\n\n`;
-            markdown += `**Project:** [TEMPLATE] EngageMe\n\n`;
+            markdown += `**Project:** EngageMe\n\n`;
             markdown += `---\n\n`;
 
             if (iterationStats.length === 0) {
