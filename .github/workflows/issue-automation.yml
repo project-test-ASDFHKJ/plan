@@ -37,47 +37,15 @@ jobs:
             async function findChildIssues(parentNumber) {
               console.log(`🔍 Looking for children of issue #${parentNumber}...`);
 
-              // Use GraphQL to get tracked issues (supports cross-repository relationships)
+              // Use REST API sub_issues endpoint (properly supports cross-repository relationships)
               try {
-                const graphqlQuery = `
-                  query($owner: String!, $repo: String!, $issueNumber: Int!) {
-                    repository(owner: $owner, name: $repo) {
-                      issue(number: $issueNumber) {
-                        trackedIssues(first: 100) {
-                          nodes {
-                            id
-                            number
-                            state
-                            title
-                            milestone {
-                              number
-                              title
-                            }
-                            labels(first: 20) {
-                              nodes {
-                                name
-                              }
-                            }
-                            repository {
-                              name
-                              owner {
-                                login
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                `;
-
-                const result = await github.graphql(graphqlQuery, {
+                const response = await github.rest.issues.listSubIssues({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  issueNumber: parentNumber
+                  issue_number: parentNumber
                 });
 
-                const children = result.repository.issue.trackedIssues.nodes;
+                const children = response.data;
 
                 if (children && children.length > 0) {
                   // Log with repo info for cross-repo children
@@ -85,25 +53,36 @@ jobs:
                     const repo = c.repository?.name || context.repo.repo;
                     const owner = c.repository?.owner?.login || context.repo.owner;
                     if (repo !== context.repo.repo || owner !== context.repo.owner) {
-                      return `${owner}/${repo}#${c.number}`;
+                      return owner + '/' + repo + '#' + c.number;
                     }
-                    return `#${c.number}`;
+                    return '#' + c.number;
                   }).join(', ');
 
-                  console.log(`✅ Found ${children.length} child issue(s) via GraphQL: ${childLabels}`);
+                  console.log('✅ Found ' + children.length + ' child issue(s): ' + childLabels);
 
-                  // Ensure repository info exists, default to current repo if missing
+                  // Transform REST API response to match expected structure
                   return children.map(child => ({
-                    ...child,
-                    repository: child.repository || {
+                    id: child.node_id,
+                    number: child.number,
+                    state: child.state,
+                    title: child.title,
+                    milestone: child.milestone ? {
+                      number: child.milestone.number,
+                      title: child.milestone.title
+                    } : null,
+                    labels: { nodes: child.labels || [] },
+                    repository: child.repository ? {
+                      name: child.repository.name,
+                      owner: { login: child.repository.owner.login }
+                    } : {
                       name: context.repo.repo,
                       owner: { login: context.repo.owner }
                     }
                   }));
                 }
               } catch (error) {
-                console.log(`⚠️  Could not get tracked issues from GraphQL: ${error.message}`);
-                console.log('This may happen if the issue has no children or GraphQL access is limited');
+                console.log('⚠️  Could not get sub-issues: ' + error.message);
+                console.log('This may happen if the issue has no children or API access is limited');
               }
 
               console.log('No children found');
