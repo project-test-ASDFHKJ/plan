@@ -1,43 +1,77 @@
-● Issue Automations
+# Issue Automations
 
-  When you create an issue in the plan repository:
+All automations run from the `plan` repository only. No workflows needed in other repos.
 
-  - Issue type is automatically set based on the title prefix (EPIC, FEATURE, STORY, or TASK)
-  - Issue is added to the EngageMe project
-  - Project Type field is set to match the title prefix
+## Type Setting
 
-  When you link issues from other repositories (like calendar) as children:
+**When:** You create or link an issue with `[EPIC]`, `[FEATURE]`, `[STORY]`, or `[TASK]` in the title
 
-  To trigger the automation, add the "sync" label to the parent issue
-  - Child issue type is set based on its title prefix
-  - Child is added to the EngageMe project
-  - Child inherits the parent's iteration
-  - Child inherits all labels from the parent (except "sync")
-  - The "sync" label removes itself automatically when done
+**What happens:**
+- Type is set automatically based on the title prefix
+- Works for all descendants (children, grandchildren, etc.)
+- Works across all repositories (plan, calendar, etc.)
 
-  When you add or remove labels on a parent issue:
+**Trigger:** Automatic when editing, or add `sync` label for instant update
 
-  - All children and grandchildren get the same label added or removed
-  - Works across all repositories
-  - The "sync" label is not cascaded to children
+## Iteration Inheritance
 
-  When you change the milestone on a parent issue:
+**When:** A parent issue has an iteration set
 
-  - All children and grandchildren in the same repository get the updated milestone
-  - Cross-repository children are skipped (milestones are repository-specific)
+**What happens:**
+- All descendants inherit the parent's iteration
+- Works for all descendants (children, grandchildren, etc.)
+- Works across all repositories
 
-  When you close a parent issue:
+**Trigger:** Automatic when editing, or add `sync` label for instant update
 
-  - All children are closed automatically
-  - All grandchildren are closed automatically
-  - Works across all repositories
+## Label Cascade
 
-  When all children of an issue are closed:
+**When:** You add or remove a label on a parent issue
 
-  - The parent issue closes automatically
-  - Only works within the plan repository
+**What happens:**
+- All descendants get the same label added or removed
+- Works across all repositories
+- `sync` label is not cascaded to children
 
-  When you reopen a child issue:
+## Milestone Cascade
 
-  - The parent issue reopens automatically if it was closed
-  - Only works within the plan repository
+**When:** You change the milestone on a parent issue
+
+**What happens:**
+- All descendants in the same repository get the updated milestone
+- Cross-repository children are skipped (milestones are repo-specific)
+
+## Closing Issues
+
+**When:** You close a parent issue
+
+**What happens:**
+- All descendants are closed automatically
+- Works across all repositories
+
+**When:** All children of an issue are closed
+
+**What happens:**
+- Parent closes automatically
+
+**When:** You reopen a child issue
+
+**What happens:**
+- Parent reopens automatically if it was closed
+
+## Estimate Rollup
+
+**When:** Every 15 minutes (automatic) OR when you add `sync` label (instant)
+
+**What happens:**
+- Parent's Estimate = sum of all open children's Estimates
+- Parent's Remaining = sum of all open children's Remaining
+- Works across all repositories
+- Closed issues and closed children are ignored
+- Rolls up through entire tree (grandchildren → children → parents)
+
+**How to trigger instantly:** Add `sync` label to any parent issue
+
+---
+
+**Note:** All workflows run from the `plan` repository. Other repositories (like `calendar`) don't need any workflows.
