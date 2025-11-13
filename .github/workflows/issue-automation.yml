@@ -39,7 +39,7 @@ jobs:
 
               // Use REST API sub_issues endpoint (properly supports cross-repository relationships)
               try {
-                const response = await github.rest.issues.listSubIssues({
+                const response = await github.request('GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues', {
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: parentNumber
