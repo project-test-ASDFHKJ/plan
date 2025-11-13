@@ -2,8 +2,8 @@ name: Scheduled Rollup - All Issues
 
 on:
   schedule:
-    # Runs every 5 minutes (more reliable than every minute)
-    - cron: '*/5 * * * *'
+    # Run every 15 minutes
+    - cron: '*/15 * * * *'
   workflow_dispatch:  # Allow manual triggering
 
 jobs:
@@ -50,6 +50,12 @@ jobs:
                               ... on Issue {
                                 id
                                 number
+                                repository {
+                                  name
+                                  owner {
+                                    login
+                                  }
+                                }
                               }
                             }
                             fieldValues(first: 20) {
@@ -95,10 +101,16 @@ jobs:
                 return null;
               }
 
-              // Find the item for this issue
-              const item = project.items.nodes.find(i =>
-                i.content && i.content.number === issueNumber
-              );
+              // Find the item for this issue (match by number AND repository for cross-repo support)
+              const item = project.items.nodes.find(i => {
+                if (!i.content || i.content.number !== issueNumber) return false;
+
+                // For cross-repo, also match repository
+                const itemOwner = i.content.repository?.owner?.login || context.repo.owner;
+                const itemRepo = i.content.repository?.name || context.repo.repo;
+
+                return itemOwner === owner && itemRepo === repo;
+              });
 
               if (item) {
                 const fields = {};
@@ -149,118 +161,144 @@ jobs:
               });
             }
 
-            // Get all issues
-            const allIssues = [];
-            let page = 1;
-            let hasMore = true;
+            // Get all issues from ALL repos via the project
+            console.log('Fetching all issues from project (all repos)...');
 
-            console.log('Fetching all issues...');
-
-            while (hasMore) {
-              const issues = await github.rest.issues.listForRepo({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                state: 'all',
-                per_page: 100,
-                page: page
-              });
-
-              if (issues.data.length === 0) {
-                hasMore = false;
-              } else {
-                allIssues.push(...issues.data);
-                page++;
-              }
-            }
-
-            console.log(`Found ${allIssues.length} total issues`);
-
-            // Build parent-child relationships using GitHub's native sub-issues
-            const parentChildMap = new Map();
-            const childParentMap = new Map();
-
-            console.log('Building parent-child relationships using native sub-issues...');
-
-            // For each issue, check if it has sub-issues using GraphQL (supports cross-repo)
-            let apiCallCount = 0;
-            let successCount = 0;
-            let errorCount = 0;
-
-            // Process issues in batches of 20 to reduce GraphQL calls
-            const batchSize = 20;
-            for (let i = 0; i < allIssues.length; i += batchSize) {
-              const batch = allIssues.slice(i, Math.min(i + batchSize, allIssues.length));
-
-              // Build GraphQL query for batch
-              const queries = batch.map((issue, idx) => `
-                issue${idx}: issue(number: ${issue.number}) {
-                  number
-                  trackedIssues(first: 100) {
+            const allProjectItemsQuery = `
+              query($owner: String!) {
+                organization(login: $owner) {
+                  projectsV2(first: 10) {
                     nodes {
-                      number
-                      repository {
-                        name
-                        owner {
-                          login
+                      title
+                      items(first: 100) {
+                        nodes {
+                          content {
+                            ... on Issue {
+                              id
+                              number
+                              title
+                              state
+                              repository {
+                                name
+                                owner {
+                                  login
+                                }
+                              }
+                            }
+                          }
                         }
                       }
                     }
                   }
                 }
-              `).join('\n');
+              }
+            `;
 
-              const graphqlQuery = `
-                query {
-                  repository(owner: "${context.repo.owner}", name: "${context.repo.repo}") {
-                    ${queries}
-                  }
-                }
-              `;
+            const projectItemsResult = await github.graphql(allProjectItemsQuery, {
+              owner: context.repo.owner
+            });
 
+            const targetProject = projectItemsResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
+            if (!targetProject) {
+              console.log('❌ Project not found');
+              return;
+            }
+
+            const allIssues = targetProject.items.nodes
+              .filter(item => item.content && item.content.number)
+              .map(item => ({
+                number: item.content.number,
+                title: item.content.title,
+                state: item.content.state,
+                owner: item.content.repository?.owner?.login || context.repo.owner,
+                repo: item.content.repository?.name || context.repo.repo
+              }));
+
+            console.log(`Found ${allIssues.length} total issues across all repos`);
+
+            // Group issues by repository
+            const repoGroups = new Map();
+            for (const issue of allIssues) {
+              const repoKey = `${issue.owner}/${issue.repo}`;
+              if (!repoGroups.has(repoKey)) {
+                repoGroups.set(repoKey, []);
+              }
+              repoGroups.get(repoKey).push(issue);
+            }
+
+            console.log(`Issues span ${repoGroups.size} repositories:`);
+            for (const [repoKey, issues] of repoGroups) {
+              console.log(`  ${repoKey}: ${issues.length} issues`);
+            }
+
+            // Build parent-child relationships using GitHub's native sub-issues (cross-repo)
+            const parentChildMap = new Map();
+            const childParentMap = new Map();
+
+            console.log('\nBuilding parent-child relationships using REST API...');
+
+            let apiCallCount = 0;
+            let successCount = 0;
+
+            for (const issue of allIssues) {
               try {
-                const result = await github.graphql(graphqlQuery);
+                // Use REST API sub_issues endpoint (supports cross-repo)
+                const response = await github.request('GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues', {
+                  owner: issue.owner,
+                  repo: issue.repo,
+                  issue_number: issue.number
+                });
 
-                for (let idx = 0; idx < batch.length; idx++) {
-                  const issue = batch[idx];
-                  const issueData = result.repository[`issue${idx}`];
-                  apiCallCount++;
+                apiCallCount++;
 
-                  if (issueData && issueData.trackedIssues.nodes.length > 0) {
-                    const children = issueData.trackedIssues.nodes;
-                    successCount++;
+                if (response.data && response.data.length > 0) {
+                  const children = response.data.map(child => ({
+                    number: child.number,
+                    owner: child.repository?.owner?.login || issue.owner,
+                    repo: child.repository?.name || issue.repo
+                  }));
 
-                    // Log with repo info for cross-repo children
-                    const childLabels = children.map(c => {
-                      if (c.repository.name !== context.repo.repo) {
-                        return `${c.repository.name}#${c.number}`;
-                      }
-                      return `#${c.number}`;
-                    }).join(', ');
+                  successCount++;
 
-                    console.log(`✅ Issue #${issue.number} has ${children.length} children: ${childLabels}`);
-
-                    // Store full child objects with repository info for cross-repo support
-                    parentChildMap.set(issue.number, children);
-
-                    for (const child of children) {
-                      childParentMap.set(child.number, issue.number);
+                  // Log with repo info for cross-repo children
+                  const childLabels = children.map(c => {
+                    if (c.repo !== issue.repo) {
+                      return `${c.repo}#${c.number}`;
                     }
+                    return `#${c.number}`;
+                  }).join(', ');
+
+                  const issueKey = `${issue.owner}/${issue.repo}#${issue.number}`;
+                  console.log(`✅ ${issueKey} has ${children.length} children: ${childLabels}`);
+
+                  parentChildMap.set(issueKey, children);
+
+                  for (const child of children) {
+                    const childKey = `${child.owner}/${child.repo}#${child.number}`;
+                    childParentMap.set(childKey, issueKey);
                   }
                 }
               } catch (error) {
-                errorCount++;
-                console.log(`⚠️  Error processing batch: ${error.message}`);
+                // 404 means no sub-issues endpoint access or no children - that's okay
+                if (error.status !== 404) {
+                  console.log(`⚠️  Error checking ${issue.owner}/${issue.repo}#${issue.number}: ${error.message}`);
+                }
               }
             }
 
-            console.log(`API Statistics: ${apiCallCount} issues checked, ${successCount} with children, ${errorCount} errors`);
+            console.log(`API Statistics: ${apiCallCount} issues checked, ${successCount} with children`);
             console.log(`Found ${parentChildMap.size} parent issues with children`);
 
             // Process each parent issue
             let updatedCount = 0;
 
-            for (const [parentNumber, children] of parentChildMap.entries()) {
-              console.log(`\n📊 Processing parent #${parentNumber} with ${children.length} children`);
+            for (const [parentKey, children] of parentChildMap.entries()) {
+              console.log(`\n📊 Processing parent ${parentKey} with ${children.length} children`);
+
+              // Extract parent info from key (format: owner/repo#number)
+              const [parentOwnerRepo, parentNumberStr] = parentKey.split('#');
+              const [parentOwner, parentRepo] = parentOwnerRepo.split('/');
+              const parentNumber = parseInt(parentNumberStr);
 
               // Calculate totals from children
               let totalEstimate = 0;
@@ -268,9 +306,8 @@ jobs:
               const childDetails = [];
 
               for (const child of children) {
-                // Extract repository info for cross-repo support
-                const childOwner = child.repository?.owner?.login || context.repo.owner;
-                const childRepo = child.repository?.name || context.repo.repo;
+                const childOwner = child.owner;
+                const childRepo = child.repo;
                 const childNumber = child.number;
 
                 const projectFields = await getProjectFields(childNumber, childOwner, childRepo);
@@ -299,7 +336,7 @@ jobs:
               console.log(`Total: Estimate=${totalEstimate}, Remaining=${totalRemaining}`);
 
               // Get parent's project fields
-              const parentProjectFields = await getProjectFields(parentNumber);
+              const parentProjectFields = await getProjectFields(parentNumber, parentOwner, parentRepo);
 
               if (!parentProjectFields) {
                 console.log(`⚠️  Parent #${parentNumber} not found in project`);
