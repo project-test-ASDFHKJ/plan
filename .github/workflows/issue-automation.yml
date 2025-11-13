@@ -1967,6 +1967,209 @@ jobs:
             }
 
             // ========================================
+            // Rollup estimates to parent (automatic)
+            // ========================================
+
+            if (actionType === 'edited' || runFullSync) {
+              console.log('\n📊 Checking if estimates need to be rolled up to parent...');
+
+              try {
+                const parent = await findParentIssue(issueNumber);
+
+                if (parent && parent.number) {
+                  console.log(`Found parent issue #${parent.number}, rolling up estimates...`);
+
+                  // Get all children of the parent (including this issue)
+                  const parentChildren = await findChildIssues(parent.number);
+
+                  if (parentChildren && parentChildren.length > 0) {
+                    let totalEstimate = 0;
+                    let totalRemaining = 0;
+
+                    console.log(`Parent #${parent.number} has ${parentChildren.length} children, calculating totals...`);
+
+                    for (const child of parentChildren) {
+                      const childOwner = child.repository?.owner?.login || context.repo.owner;
+                      const childRepo = child.repository?.name || context.repo.repo;
+                      const childNumber = child.number;
+
+                      try {
+                        // Get child's project fields
+                        const childProjectQuery = `
+                          query($owner: String!) {
+                            organization(login: $owner) {
+                              projectsV2(first: 10) {
+                                nodes {
+                                  id
+                                  title
+                                  items(first: 100) {
+                                    nodes {
+                                      id
+                                      content {
+                                        ... on Issue {
+                                          id
+                                          number
+                                          repository {
+                                            name
+                                            owner {
+                                              login
+                                            }
+                                          }
+                                        }
+                                      }
+                                      fieldValues(first: 20) {
+                                        nodes {
+                                          ... on ProjectV2ItemFieldNumberValue {
+                                            number
+                                            field {
+                                              ... on ProjectV2Field {
+                                                id
+                                                name
+                                              }
+                                            }
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        `;
+
+                        const childProjResult = await github.graphql(childProjectQuery, {
+                          owner: context.repo.owner
+                        });
+
+                        const childProject = childProjResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
+                        if (childProject) {
+                          const childItem = childProject.items.nodes.find(i => {
+                            if (!i.content) return false;
+                            const itemOwner = i.content.repository?.owner?.login || context.repo.owner;
+                            const itemRepo = i.content.repository?.name || context.repo.repo;
+                            return i.content.number === childNumber && itemOwner === childOwner && itemRepo === childRepo;
+                          });
+
+                          if (childItem) {
+                            const estimateField = childItem.fieldValues.nodes.find(fv => fv.field && fv.field.name === 'Estimate');
+                            const remainingField = childItem.fieldValues.nodes.find(fv => fv.field && fv.field.name === 'Remaining');
+
+                            const estimate = estimateField?.number || 0;
+                            const remaining = remainingField?.number || 0;
+
+                            totalEstimate += estimate;
+                            totalRemaining += remaining;
+
+                            const childLabel = (childRepo !== context.repo.repo || childOwner !== context.repo.owner) ? `${childOwner}/${childRepo}#${childNumber}` : `#${childNumber}`;
+                            console.log(`  ${childLabel}: Estimate=${estimate}, Remaining=${remaining}`);
+                          }
+                        }
+                      } catch (childError) {
+                        console.log(`  ⚠️  Could not get estimates for child #${childNumber}: ${childError.message}`);
+                      }
+                    }
+
+                    console.log(`📊 Total from ${parentChildren.length} children: Estimate=${totalEstimate}, Remaining=${totalRemaining}`);
+
+                    // Update parent's fields
+                    try {
+                      const parentProjectQuery = `
+                        query($owner: String!) {
+                          organization(login: $owner) {
+                            projectsV2(first: 10) {
+                              nodes {
+                                id
+                                title
+                                items(first: 100) {
+                                  nodes {
+                                    id
+                                    content {
+                                      ... on Issue {
+                                        id
+                                        number
+                                      }
+                                    }
+                                  }
+                                }
+                                fields(first: 20) {
+                                  nodes {
+                                    ... on ProjectV2Field {
+                                      id
+                                      name
+                                      dataType
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      `;
+
+                      const parentProjResult = await github.graphql(parentProjectQuery, {
+                        owner: context.repo.owner
+                      });
+
+                      const parentProject = parentProjResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
+                      if (parentProject) {
+                        const parentItem = parentProject.items.nodes.find(i =>
+                          i.content && i.content.number === parent.number
+                        );
+
+                        if (parentItem) {
+                          const estimateField = parentProject.fields.nodes.find(f => f.name === 'Estimate');
+                          const remainingField = parentProject.fields.nodes.find(f => f.name === 'Remaining');
+
+                          if (estimateField && remainingField) {
+                            // Update Estimate
+                            const updateEstimateMutation = `
+                              mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: Float!) {
+                                updateProjectV2ItemFieldValue(input: {
+                                  projectId: $projectId
+                                  itemId: $itemId
+                                  fieldId: $fieldId
+                                  value: { number: $value }
+                                }) {
+                                  projectV2Item { id }
+                                }
+                              }
+                            `;
+
+                            await github.graphql(updateEstimateMutation, {
+                              projectId: parentProject.id,
+                              itemId: parentItem.id,
+                              fieldId: estimateField.id,
+                              value: totalEstimate
+                            });
+
+                            console.log(`✅ Updated parent #${parent.number} Estimate to ${totalEstimate}`);
+
+                            // Update Remaining
+                            await github.graphql(updateEstimateMutation, {
+                              projectId: parentProject.id,
+                              itemId: parentItem.id,
+                              fieldId: remainingField.id,
+                              value: totalRemaining
+                            });
+
+                            console.log(`✅ Updated parent #${parent.number} Remaining to ${totalRemaining}`);
+                          }
+                        }
+                      }
+                    } catch (updateError) {
+                      console.log(`⚠️  Could not update parent estimates: ${updateError.message}`);
+                    }
+                  }
+                } else {
+                  console.log('ℹ️  No parent issue found, skipping rollup');
+                }
+              } catch (error) {
+                console.log(`⚠️  Error during rollup: ${error.message}`);
+              }
+            }
+
+            // ========================================
             // Remove 'sync' label after processing
             // ========================================
 
