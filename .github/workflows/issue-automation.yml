@@ -984,7 +984,7 @@ jobs:
                                 owner: childOwner,
                                 repo: childRepo,
                                 issue_number: childNumber,
-                                issue_type: childType
+                                type: childType
                               });
                               console.log('  ✅ Set organization Issue Type to "' + childType + '" for ' + repoLabel);
                             } catch (typeError) {
