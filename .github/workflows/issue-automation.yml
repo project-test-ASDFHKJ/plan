@@ -892,7 +892,14 @@ jobs:
             // ========================================
             const actionType = context.payload.action;
 
-            if (actionType === 'edited') {
+            // Check if 'sync' label was added to trigger full sync
+            let runFullSync = false;
+            if (actionType === 'labeled' && context.payload.label && context.payload.label.name === 'sync') {
+              console.log('\n🔄 "sync" label detected - triggering full synchronization...');
+              runFullSync = true;
+            }
+
+            if (actionType === 'edited' || runFullSync) {
               console.log(`\n🔍 Checking for newly added child issues...`);
 
               try {
@@ -1097,7 +1104,7 @@ jobs:
             const currentMilestone = context.payload.issue.milestone;
 
             let updatedDescendants = new Set();
-            if (['milestoned', 'demilestoned', 'edited'].includes(actionType)) {
+            if (['milestoned', 'demilestoned', 'edited'].includes(actionType) || runFullSync) {
               console.log(`\n🔄 Cascading milestone changes to all descendants of #${issueNumber}...`);
               updatedDescendants = await updateDescendantsMilestone(issueNumber, currentMilestone);
 
@@ -1126,6 +1133,12 @@ jobs:
                 labelOperation = 'remove';
                 labelName = context.payload.label.name;
                 console.log(`Label "${labelName}" was removed from parent #${issueNumber}`);
+              }
+
+              // Skip cascading the 'sync' label (it's only for triggering)
+              if (labelName === 'sync') {
+                console.log('ℹ️  Skipping cascade of "sync" label (trigger label only)');
+                labelName = '';
               }
 
               if (labelName) {
@@ -1245,4 +1258,23 @@ jobs:
               // Start the sync chain from this issue
               await syncParentState(issueNumber);
               console.log('✅ Parent state sync complete!');
+            }
+
+            // ========================================
+            // Remove 'sync' label after processing
+            // ========================================
+
+            if (runFullSync) {
+              console.log('\n🧹 Removing "sync" label after full synchronization...');
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber,
+                  name: 'sync'
+                });
+                console.log('✅ "sync" label removed');
+              } catch (error) {
+                console.log('⚠️  Could not remove "sync" label: ' + error.message);
+              }
             }
