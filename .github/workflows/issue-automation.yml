@@ -276,12 +276,8 @@ jobs:
                   }
                 }
 
-                // Recursively update grandchildren (only for same-repo)
-                if (!isCrossRepo) {
-                  await updateDescendantsLabels(childNumber, labelName, operation, depth + 1, updatedIssues);
-                } else {
-                  console.log(`${indent}ℹ️  Skipping grandchildren check for cross-repo issue ${repoLabel}`);
-                }
+                // Recursively update grandchildren (including cross-repo)
+                await updateDescendantsLabels(childNumber, labelName, operation, depth + 1, updatedIssues);
               }
 
               return updatedIssues;
