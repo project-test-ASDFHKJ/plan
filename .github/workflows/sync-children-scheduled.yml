@@ -257,7 +257,7 @@ ${stats.errors > 0 ? '⚠️ Some issues encountered errors. Check workflow logs
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   title: '🔄 Automation Sync Log',
-                  body: `This issue tracks scheduled synchronization of child issues.\n\n${summary}`,
+                  body: 'This issue tracks scheduled synchronization of child issues.\n\n' + summary,
                   labels: ['automation-sync-log', 'automation']
                 });
               }
