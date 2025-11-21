@@ -113,325 +113,97 @@ jobs:
 
             const issueBody = issue.data.body || '';
 
-            // Helper function to find parent by querying the project's parent field
+            // Helper function to find parent using REST API
             async function findParentIssue(issueNum) {
-              console.log(`🔍 Looking for parent of issue #${issueNum} via project fields...`);
+              console.log(`🔍 Looking for parent of issue #${issueNum} via REST API...`);
 
               try {
-                // Query both organization AND repository level projects
-                console.log(`Querying projects for issue #${issueNum}...`);
-                console.log(`Repository: ${context.repo.owner}/${context.repo.repo}`);
-
-                // Try repository-level projects first
-                const repoProjectQuery = `
-                  query($owner: String!, $repo: String!) {
-                    repository(owner: $owner, name: $repo) {
-                      projectsV2(first: 10) {
-                        nodes {
-                          id
-                          title
-                          items(first: 100) {
-                            nodes {
-                              id
-                              content {
-                                ... on Issue {
-                                  number
-                                  title
-                                  repository {
-                                    name
-                                    owner { login }
-                                  }
-                                }
-                              }
-                              fieldValues(first: 20) {
-                                nodes {
-                                  ... on ProjectV2ItemFieldSingleSelectValue {
-                                    name
-                                    field {
-                                      ... on ProjectV2SingleSelectField {
-                                        name
-                                      }
-                                    }
-                                  }
-                                  ... on ProjectV2ItemFieldTextValue {
-                                    text
-                                    field {
-                                      ... on ProjectV2Field {
-                                        name
-                                      }
-                                    }
-                                  }
-                                  ... on ProjectV2ItemFieldNumberValue {
-                                    number
-                                    field {
-                                      ... on ProjectV2Field {
-                                        name
-                                      }
-                                    }
-                                  }
-                                  ... on ProjectV2ItemFieldDateValue {
-                                    date
-                                    field {
-                                      ... on ProjectV2Field {
-                                        name
-                                      }
-                                    }
-                                  }
-                                  ... on ProjectV2ItemFieldIterationValue {
-                                    title
-                                    field {
-                                      ... on ProjectV2IterationField {
-                                        name
-                                      }
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                `;
-
-                let projects = [];
-
-                // Try repository-level projects
-                try {
-                  console.log(`Checking repository-level projects...`);
-                  const repoResult = await github.graphql(repoProjectQuery, {
-                    owner: context.repo.owner,
-                    repo: context.repo.repo
-                  });
-                  projects = repoResult.repository.projectsV2.nodes;
-                  console.log(`Found ${projects.length} repository-level project(s)`);
-                } catch (error) {
-                  console.log(`Could not query repository projects: ${error.message}`);
-                }
-
-                // If no repo projects, try organization-level
-                if (projects.length === 0) {
-                  try {
-                    console.log(`Checking organization-level projects...`);
-                    const orgProjectQuery = `
-                      query($owner: String!) {
-                        organization(login: $owner) {
-                          projectsV2(first: 10) {
-                            nodes {
-                              id
-                              title
-                              items(first: 100) {
-                                nodes {
-                                  id
-                                  content {
-                                    ... on Issue {
-                                      number
-                                      title
-                                      repository {
-                                        name
-                                        owner { login }
-                                      }
-                                    }
-                                  }
-                                  fieldValues(first: 20) {
-                                    nodes {
-                                      ... on ProjectV2ItemFieldSingleSelectValue {
-                                        name
-                                        field {
-                                          ... on ProjectV2SingleSelectField {
-                                            name
-                                          }
-                                        }
-                                      }
-                                      ... on ProjectV2ItemFieldTextValue {
-                                        text
-                                        field {
-                                          ... on ProjectV2Field {
-                                            name
-                                          }
-                                        }
-                                      }
-                                      ... on ProjectV2ItemFieldNumberValue {
-                                        number
-                                        field {
-                                          ... on ProjectV2Field {
-                                            name
-                                          }
-                                        }
-                                      }
-                                      ... on ProjectV2ItemFieldDateValue {
-                                        date
-                                        field {
-                                          ... on ProjectV2Field {
-                                            name
-                                          }
-                                        }
-                                      }
-                                      ... on ProjectV2ItemFieldIterationValue {
-                                        title
-                                        field {
-                                          ... on ProjectV2IterationField {
-                                            name
-                                          }
-                                        }
-                                      }
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
-                    `;
-                    const orgResult = await github.graphql(orgProjectQuery, {
-                      owner: context.repo.owner
-                    });
-                    projects = orgResult.organization.projectsV2.nodes;
-                    console.log(`Found ${projects.length} organization-level project(s)`);
-                  } catch (error) {
-                    console.log(`Could not query organization projects: ${error.message}`);
-                  }
-                }
-                console.log(`Found ${projects.length} project(s) in organization:`);
-                projects.forEach((p, idx) => {
-                  console.log(`  ${idx + 1}. "${p.title}" (ID: ${p.id})`);
+                // Get issue details from REST API - includes parent_issue_url
+                const issue = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNum
                 });
 
-                const targetProject = projects.find(p => p.title === '[TEMPLATE] EngageMe');
+                const parentUrl = issue.data.parent_issue_url;
 
-                if (!targetProject) {
-                  console.log(`\n❌ Project '[TEMPLATE] EngageMe' not found`);
-                  console.log(`Looking for exact match: "[TEMPLATE] EngageMe"`);
-                  console.log(`\nPlease update the PROJECT_NAME in the workflow file if the name is different.`);
+                if (!parentUrl) {
+                  console.log(`No parent issue found for #${issueNum}`);
                   return null;
                 }
 
-                console.log(`Found project: ${targetProject.title}`);
-
-                // Find the item for this issue
-                const item = targetProject.items.nodes.find(i =>
-                  i.content && i.content.number === issueNum &&
-                  i.content.repository.name === context.repo.repo &&
-                  i.content.repository.owner.login === context.repo.owner
-                );
-
-                if (!item) {
-                  console.log(`❌ Issue #${issueNum} not found in project`);
+                // Extract parent issue number from URL
+                // URL format: https://api.github.com/repos/owner/repo/issues/NUMBER
+                const match = parentUrl.match(/\/issues\/(\d+)$/);
+                if (!match) {
+                  console.log(`❌ Could not parse parent issue URL: ${parentUrl}`);
                   return null;
                 }
 
-                console.log(`Found issue #${issueNum} in project: ${item.content.title}`);
-                console.log(`Issue has ${item.fieldValues.nodes.length} field values`);
+                const parentNumber = parseInt(match[1]);
+                console.log(`✅ Found parent issue: #${parentNumber}`);
 
-                // Debug: Print ALL fields to see what's available
-                console.log(`\nDEBUG: All field values for #${issueNum}:`);
-                for (const fieldValue of item.fieldValues.nodes) {
-                  if (!fieldValue.field) {
-                    console.log(`  - (field without name)`);
-                    continue;
-                  }
-
-                  const fieldName = fieldValue.field.name;
-                  let value = 'unknown type';
-
-                  if (fieldValue.text) value = `text: "${fieldValue.text}"`;
-                  else if (fieldValue.number !== undefined) value = `number: ${fieldValue.number}`;
-                  else if (fieldValue.name) value = `select: "${fieldValue.name}"`;
-                  else if (fieldValue.date) value = `date: ${fieldValue.date}`;
-                  else if (fieldValue.title) value = `iteration: "${fieldValue.title}"`;
-
-                  console.log(`  - ${fieldName}: ${value}`);
-                }
-                console.log(``);
-
-                // The "Parent issue" shown in GitHub UI uses trackedInIssues relationship, not a project field
-                // Since we confirmed trackedInIssues returns 0, the relationship isn't properly set
-                console.log(`❌ IMPORTANT: "Parent issue" in GitHub's UI is NOT stored as a project field.`);
-                console.log(`   It uses GitHub's tracked issues relationship (trackedInIssues API).`);
-                console.log(`   Our earlier check confirmed this returns 0 results for #${issueNum}.`);
-                console.log(``);
-                console.log(`   TO FIX: You need to properly create the parent-child relationship:`);
-                console.log(`   1. Go to issue #75 (the parent)`);
-                console.log(`   2. Look for "Sub-issues" section or click "..." menu`);
-                console.log(`   3. Click "Add sub-issue" or "Convert to sub-issue"`);
-                console.log(`   4. Select #76, #77 as sub-issues`);
-                console.log(`   5. This will register the relationship in GitHub's API`);
-                console.log(``);
-
-                return null;
+                return parentNumber;
 
               } catch (error) {
                 console.error(`❌ Error finding parent: ${error.message}`);
-                console.error(`Error type: ${error.constructor.name}`);
-                if (error.errors) {
-                  console.error(`GraphQL errors:`, JSON.stringify(error.errors, null, 2));
-                }
                 console.error(`Stack: ${error.stack}`);
                 return null;
               }
             }
 
-            // Helper function to find children using GitHub's tracked issues API
+            // Helper function to find children using REST API sub_issues endpoint
             async function findChildIssues(parentNum) {
-              console.log(`🔍 Finding children of issue #${parentNum} via trackedIssues API...`);
+              console.log(`🔍 Finding children of issue #${parentNum} via REST API...`);
 
               try {
-                const graphqlQuery = `
-                  query($owner: String!, $repo: String!, $parentNumber: Int!) {
-                    repository(owner: $owner, name: $repo) {
-                      issue(number: $parentNumber) {
-                        trackedIssues(first: 100) {
-                          totalCount
-                          nodes {
-                            number
-                            title
-                            state
-                            repository {
-                              name
-                              owner {
-                                login
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                `;
-
-                const result = await github.graphql(graphqlQuery, {
+                // Use REST API sub_issues endpoint
+                const response = await github.request('GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues', {
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  parentNumber: parentNum
+                  issue_number: parentNum
                 });
 
-                const trackedIssues = result.repository.issue.trackedIssues;
-                const allChildren = trackedIssues.nodes;
-                const openChildren = allChildren.filter(c => c.state === 'OPEN');
+                const allChildren = response.data || [];
+                const openChildren = allChildren.filter(c => c.state === 'open');
 
-                console.log(`trackedIssues.totalCount: ${trackedIssues.totalCount}`);
-                console.log(`Open children: ${openChildren.length} / ${allChildren.length}`);
+                console.log(`Total children: ${allChildren.length}`);
+                console.log(`Open children: ${openChildren.length}`);
 
                 if (openChildren.length > 0) {
                   const childLabels = openChildren.map(c => {
-                    if (c.repository.name !== context.repo.repo) {
-                      return `${c.repository.name}#${c.number}`;
+                    const childRepo = c.repository?.name || context.repo.repo;
+                    if (childRepo !== context.repo.repo) {
+                      return `${childRepo}#${c.number}`;
                     }
                     return `#${c.number}`;
                   }).join(', ');
-                  console.log(`✅ Found children: ${childLabels}`);
+                  console.log(`✅ Found open children: ${childLabels}`);
                 } else if (allChildren.length > 0) {
                   console.log(`⚠️  All ${allChildren.length} children are CLOSED`);
                 } else {
-                  console.log(`No children found - trackedIssues is empty`);
-                  console.log(`This means #${parentNum} has no sub-issues registered in GitHub's API`);
+                  console.log(`No children found - parent has no sub-issues`);
                 }
 
-                return openChildren;
+                // Transform to match expected format
+                return openChildren.map(c => ({
+                  number: c.number,
+                  title: c.title,
+                  state: c.state.toUpperCase(),
+                  repository: {
+                    name: c.repository?.name || context.repo.repo,
+                    owner: {
+                      login: c.repository?.owner?.login || context.repo.owner
+                    }
+                  }
+                }));
 
               } catch (error) {
+                // 404 means no sub-issues or endpoint not available
+                if (error.status === 404) {
+                  console.log(`No sub-issues found for #${parentNum} (404)`);
+                  return [];
+                }
                 console.error(`❌ Error finding children: ${error.message}`);
                 console.error(`Stack: ${error.stack}`);
                 return [];
