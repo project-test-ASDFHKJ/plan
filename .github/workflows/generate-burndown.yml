@@ -1,14 +1,32 @@
 name: Generate Burndown Report
 
+# This workflow generates a burndown chart for project iterations
+#
+# PAGINATION IMPLEMENTATION:
+# - Project items: Fully paginated (handles >100 items via cursor-based pagination)
+# - Project fields: Limited to first 20 (sufficient for typical projects)
+# - Field values per item: Limited to first 20 (sufficient for typical items)
+#
+# If your project has >20 fields or >20 field values per item, implement
+# similar cursor-based pagination for those queries.
+
 on:
   schedule:
     # Run daily at midnight UTC
     - cron: '0 0 * * *'
   workflow_dispatch:  # Allow manual triggering
 
+env:
+  # Configuration - Update these for your environment
+  PROJECT_NAME: '[TEMPLATE] EngageMe'
+  FIELD_ESTIMATE: 'Estimate'
+  FIELD_REMAINING: 'Remaining'
+  FIELD_ITERATION: 'Iteration'
+
 jobs:
   generate-burndown:
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # Prevent workflows from hanging indefinitely
     permissions:
       issues: read
       contents: write
@@ -46,16 +64,70 @@ jobs:
             const { ChartJSNodeCanvas } = require('chartjs-node-canvas');
             const { format, parseISO, differenceInDays, addDays } = require('date-fns');
 
-            // Function to get all issues and their project fields
+            // Function to get all issues and their project fields with pagination
             async function getProjectData() {
-              const projectQuery = `
+              // First, find the project and get fields
+              const projectMetadataQuery = `
                 query($owner: String!) {
                   organization(login: $owner) {
                     projectsV2(first: 10) {
                       nodes {
                         id
                         title
-                        items(first: 100) {
+                        fields(first: 20) {
+                          nodes {
+                            ... on ProjectV2IterationField {
+                              id
+                              name
+                              configuration {
+                                iterations {
+                                  id
+                                  title
+                                  startDate
+                                  duration
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              `;
+
+              const metadataResult = await github.graphql(projectMetadataQuery, {
+                owner: context.repo.owner
+              });
+
+              const projects = metadataResult.organization.projectsV2.nodes;
+              const project = projects.find(p => p.title === '[TEMPLATE] EngageMe');
+
+              if (!project) {
+                throw new Error('[TEMPLATE] EngageMe project not found');
+              }
+
+              console.log(`Found project: ${project.title} (ID: ${project.id})`);
+
+              // Now paginate through all project items
+              const allItems = [];
+              let hasNextPage = true;
+              let cursor = null;
+              let pageCount = 0;
+
+              while (hasNextPage) {
+                pageCount++;
+                console.log(`Fetching project items page ${pageCount}...`);
+
+                const itemsQuery = `
+                  query($owner: String!, $projectId: ID!, $cursor: String) {
+                    node(id: $projectId) {
+                      ... on ProjectV2 {
+                        items(first: 100, after: $cursor) {
+                          pageInfo {
+                            hasNextPage
+                            endCursor
+                          }
                           nodes {
                             id
                             content {
@@ -104,45 +176,39 @@ jobs:
                             }
                           }
                         }
-                        fields(first: 20) {
-                          nodes {
-                            ... on ProjectV2IterationField {
-                              id
-                              name
-                              configuration {
-                                iterations {
-                                  id
-                                  title
-                                  startDate
-                                  duration
-                                }
-                              }
-                            }
-                          }
-                        }
                       }
                     }
                   }
-                }
-              `;
+                `;
 
-              const projectResult = await github.graphql(projectQuery, {
-                owner: context.repo.owner
-              });
+                const itemsResult = await github.graphql(itemsQuery, {
+                  owner: context.repo.owner,
+                  projectId: project.id,
+                  cursor: cursor
+                });
 
-              const projects = projectResult.organization.projectsV2.nodes;
-              const project = projects.find(p => p.title === '[TEMPLATE] EngageMe');
+                const items = itemsResult.node.items;
+                allItems.push(...items.nodes);
 
-              if (!project) {
-                throw new Error('[TEMPLATE] EngageMe project not found');
+                hasNextPage = items.pageInfo.hasNextPage;
+                cursor = items.pageInfo.endCursor;
+
+                console.log(`  Fetched ${items.nodes.length} items (total so far: ${allItems.length})`);
               }
 
-              return project;
+              console.log(`✅ Fetched all ${allItems.length} project items across ${pageCount} page(s)`);
+
+              // Reconstruct project object with all items
+              return {
+                ...project,
+                items: {
+                  nodes: allItems
+                }
+              };
             }
 
-            // Get project data
+            // Get project data (with pagination for all items)
             const project = await getProjectData();
-            console.log(`Found project: ${project.title}`);
 
             // Get all iterations
             const iterationField = project.fields.nodes.find(f => f.name === 'Iteration');

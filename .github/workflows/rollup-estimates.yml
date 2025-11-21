@@ -10,6 +10,12 @@ on:
   issues:
     types: [edited, labeled]
 
+env:
+  # Configuration - Update these for your environment
+  PROJECT_NAME: '[TEMPLATE] EngageMe'
+  FIELD_ESTIMATE: 'Estimate'
+  FIELD_REMAINING: 'Remaining'
+
 jobs:
   rollup-to-parents:
     # Only run if manually triggered OR if 'sync' label was added
@@ -17,6 +23,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'sync')
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # Prevent workflows from hanging indefinitely
     permissions:
       issues: write
       contents: read

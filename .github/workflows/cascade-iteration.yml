@@ -10,9 +10,15 @@ on:
   issues:
     types: [edited, labeled]
 
+env:
+  # Configuration - Update these for your environment
+  PROJECT_NAME: '[TEMPLATE] EngageMe'
+  FIELD_ITERATION: 'Iteration'
+
 jobs:
   cascade-iteration:
     runs-on: ubuntu-latest
+    timeout-minutes: 10  # Prevent workflows from hanging indefinitely
     permissions:
       issues: write
       contents: read
@@ -245,9 +251,10 @@ jobs:
             }
 
             // Function to recursively update all descendants with iteration
-            async function updateDescendantsIteration(parentNumber, iteration, depth = 0, updatedIssues = new Set()) {
+            async function updateDescendantsIteration(parentNumber, iteration, depth = 0, updatedIssues = new Set(), owner = context.repo.owner, repo = context.repo.repo) {
               const indent = '  '.repeat(depth);
-              console.log(`${indent}Cascading iteration to descendants of #${parentNumber}...`);
+              const parentRepoLabel = (owner !== context.repo.owner || repo !== context.repo.repo) ? `${owner}/${repo}#${parentNumber}` : `#${parentNumber}`;
+              console.log(`${indent}Cascading iteration to descendants of ${parentRepoLabel}...`);
 
               const children = await findChildIssues(parentNumber);
 
@@ -258,13 +265,16 @@ jobs:
                 const childNumber = child.number;
                 const repoLabel = childRepo !== context.repo.repo ? `${childRepo}#${childNumber}` : `#${childNumber}`;
 
-                // Avoid infinite loops
-                if (updatedIssues.has(childNumber)) {
+                // Create composite key for cycle detection (repo-scoped)
+                const compositeKey = `${childOwner}/${childRepo}#${childNumber}`;
+
+                // Avoid infinite loops using composite key
+                if (updatedIssues.has(compositeKey)) {
                   console.log(`${indent}⏭️  Skipping ${repoLabel} (already processed)`);
                   continue;
                 }
 
-                updatedIssues.add(childNumber);
+                updatedIssues.add(compositeKey);
 
                 // Get child's project info
                 const childProjectInfo = await getProjectIteration(childNumber, childOwner, childRepo);
@@ -299,8 +309,8 @@ jobs:
                   console.log(`${indent}⏭️  ${repoLabel} already has correct iteration`);
                 }
 
-                // Recursively update grandchildren
-                await updateDescendantsIteration(childNumber, iteration, depth + 1, updatedIssues);
+                // Recursively update grandchildren with owner/repo info
+                await updateDescendantsIteration(childNumber, iteration, depth + 1, updatedIssues, childOwner, childRepo);
               }
 
               return updatedIssues;
@@ -317,8 +327,8 @@ jobs:
             const iteration = parentProjectInfo.iteration;
             console.log(`Parent iteration: ${iteration?.title || 'none'}`);
 
-            // Start cascading
-            const updatedDescendants = await updateDescendantsIteration(issueNumber, iteration);
+            // Start cascading with repo-scoped tracking
+            const updatedDescendants = await updateDescendantsIteration(issueNumber, iteration, 0, new Set(), context.repo.owner, context.repo.repo);
 
             if (updatedDescendants.size > 0) {
               console.log(`✅ Updated ${updatedDescendants.size} descendant issue(s) with iteration "${iteration?.title || 'none'}"`);
