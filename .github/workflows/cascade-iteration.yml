@@ -66,34 +66,29 @@ jobs:
             async function findChildIssues(parentNumber) {
               console.log(`🔍 Looking for children of issue #${parentNumber}...`);
 
-              // Use GraphQL to get sub-issues (supports cross-repository relationships)
+              // Use REST API sub_issues endpoint (more reliable than GraphQL trackedIssues)
               try {
-                const graphqlQuery = `
-                  query {
-                    repository(owner: "${context.repo.owner}", name: "${context.repo.repo}") {
-                      issue(number: ${parentNumber}) {
-                        trackedIssues(first: 100) {
-                          nodes {
-                            number
-                            repository {
-                              name
-                              owner {
-                                login
-                              }
-                            }
-                          }
-                        }
+                const response = await github.request('GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues', {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: parentNumber
+                });
+
+                const children = response.data || [];
+
+                if (children.length > 0) {
+                  // Transform to consistent format and log
+                  const transformedChildren = children.map(c => ({
+                    number: c.number,
+                    repository: {
+                      name: c.repository?.name || context.repo.repo,
+                      owner: {
+                        login: c.repository?.owner?.login || context.repo.owner
                       }
                     }
-                  }
-                `;
+                  }));
 
-                const result = await github.graphql(graphqlQuery);
-                const children = result.repository.issue.trackedIssues.nodes;
-
-                if (children && children.length > 0) {
-                  // Log with repo info for cross-repo children
-                  const childLabels = children.map(c => {
+                  const childLabels = transformedChildren.map(c => {
                     if (c.repository.name !== context.repo.repo) {
                       return `${c.repository.name}#${c.number}`;
                     }
@@ -101,10 +96,15 @@ jobs:
                   }).join(', ');
 
                   console.log(`Found ${children.length} child issue(s): ${childLabels}`);
-                  return children; // Return full objects with repository info
+                  return transformedChildren;
                 }
               } catch (error) {
-                console.log(`Could not get sub-issues from GraphQL: ${error.message}`);
+                // 404 means no sub-issues or endpoint not available
+                if (error.status === 404) {
+                  console.log(`No sub-issues found for #${parentNumber} (404)`);
+                  return [];
+                }
+                console.log(`Could not get sub-issues: ${error.message}`);
               }
 
               console.log('No children found');
