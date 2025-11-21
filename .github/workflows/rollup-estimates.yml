@@ -113,29 +113,86 @@ jobs:
 
             const issueBody = issue.data.body || '';
 
-            // Helper function to find parent using GitHub's native tracked issues
+            // Helper function to find parent by querying the project's parent field
             async function findParentIssue(issueNum) {
-              console.log(`🔍 Looking for parent of issue #${issueNum} using GitHub native relationships...`);
+              console.log(`🔍 Looking for parent of issue #${issueNum} via project fields...`);
 
               try {
-                // Query GraphQL for trackedInIssues (issues that track THIS issue = parents)
-                console.log(`Querying GraphQL trackedInIssues for #${issueNum}...`);
-                const graphqlQuery = `
-                  query($owner: String!, $repo: String!, $issueNumber: Int!) {
-                    repository(owner: $owner, name: $repo) {
-                      issue(number: $issueNumber) {
-                        id
-                        number
-                        title
-                        trackedInIssues(first: 10) {
-                          totalCount
-                          nodes {
-                            number
-                            title
-                            repository {
-                              name
-                              owner {
-                                login
+                // Query the project to find this issue and its parent field
+                const projectQuery = `
+                  query($owner: String!) {
+                    organization(login: $owner) {
+                      projectsV2(first: 10) {
+                        nodes {
+                          id
+                          title
+                          items(first: 100) {
+                            nodes {
+                              id
+                              content {
+                                ... on Issue {
+                                  number
+                                  title
+                                  repository {
+                                    name
+                                    owner { login }
+                                  }
+                                }
+                              }
+                              fieldValues(first: 20) {
+                                nodes {
+                                  ... on ProjectV2ItemFieldSingleSelectValue {
+                                    name
+                                    field {
+                                      ... on ProjectV2SingleSelectField {
+                                        name
+                                      }
+                                    }
+                                  }
+                                  ... on ProjectV2ItemFieldTextValue {
+                                    text
+                                    field {
+                                      ... on ProjectV2Field {
+                                        name
+                                      }
+                                    }
+                                  }
+                                  ... on ProjectV2ItemFieldNumberValue {
+                                    number
+                                    field {
+                                      ... on ProjectV2Field {
+                                        name
+                                      }
+                                    }
+                                  }
+                                  ... on ProjectV2ItemFieldRepositoryValue {
+                                    repository {
+                                      name
+                                    }
+                                    field {
+                                      ... on ProjectV2Field {
+                                        name
+                                      }
+                                    }
+                                  }
+                                  ... on ProjectV2ItemFieldIssueValue {
+                                    issues(first: 5) {
+                                      nodes {
+                                        number
+                                        title
+                                        repository {
+                                          name
+                                          owner { login }
+                                        }
+                                      }
+                                    }
+                                    field {
+                                      ... on ProjectV2Field {
+                                        name
+                                      }
+                                    }
+                                  }
+                                }
                               }
                             }
                           }
@@ -145,44 +202,77 @@ jobs:
                   }
                 `;
 
-                const result = await github.graphql(graphqlQuery, {
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issueNumber: issueNum
+                console.log(`Querying project for issue #${issueNum}...`);
+                const result = await github.graphql(projectQuery, {
+                  owner: context.repo.owner
                 });
 
-                const issue = result.repository.issue;
-                const trackedInCount = issue.trackedInIssues.totalCount;
-                const parents = issue.trackedInIssues.nodes;
+                const projects = result.organization.projectsV2.nodes;
+                const targetProject = projects.find(p => p.title === '[TEMPLATE] EngageMe');
 
-                console.log(`Issue #${issue.number}: ${issue.title}`);
-                console.log(`trackedInIssues.totalCount: ${trackedInCount}`);
-                console.log(`Parents found: ${parents.length}`);
+                if (!targetProject) {
+                  console.log(`❌ Project '[TEMPLATE] EngageMe' not found`);
+                  return null;
+                }
 
-                if (parents.length > 0) {
-                  parents.forEach((p, idx) => {
-                    const repoLabel = p.repository.name !== context.repo.repo
-                      ? `${p.repository.name}#${p.number}`
-                      : `#${p.number}`;
-                    console.log(`  Parent ${idx + 1}: ${repoLabel} - ${p.title}`);
-                  });
+                console.log(`Found project: ${targetProject.title}`);
 
-                  const parent = parents[0];
-                  console.log(`✅ Using first parent: #${parent.number}`);
-                  return parent.number;
+                // Find the item for this issue
+                const item = targetProject.items.nodes.find(i =>
+                  i.content && i.content.number === issueNum &&
+                  i.content.repository.name === context.repo.repo &&
+                  i.content.repository.owner.login === context.repo.owner
+                );
+
+                if (!item) {
+                  console.log(`❌ Issue #${issueNum} not found in project`);
+                  return null;
+                }
+
+                console.log(`Found issue #${issueNum} in project: ${item.content.title}`);
+
+                // Look for parent field (could be "Parent issue" or "Parent Issue" or similar)
+                let parentIssueNumber = null;
+
+                for (const fieldValue of item.fieldValues.nodes) {
+                  if (!fieldValue.field) continue;
+
+                  const fieldName = fieldValue.field.name;
+                  console.log(`  Field: ${fieldName}`);
+
+                  // Check for issue-type field that contains parent
+                  if (fieldName.toLowerCase().includes('parent') && fieldValue.issues) {
+                    const parentIssues = fieldValue.issues.nodes;
+                    console.log(`    Found parent field with ${parentIssues.length} issue(s)`);
+                    if (parentIssues.length > 0) {
+                      parentIssueNumber = parentIssues[0].number;
+                      console.log(`    ✅ Parent: #${parentIssueNumber} - ${parentIssues[0].title}`);
+                      break;
+                    }
+                  }
+
+                  // Check for text field with issue number
+                  if (fieldName.toLowerCase().includes('parent') && fieldValue.text) {
+                    const match = fieldValue.text.match(/#?(\d+)/);
+                    if (match) {
+                      parentIssueNumber = parseInt(match[1]);
+                      console.log(`    ✅ Parent from text field: #${parentIssueNumber}`);
+                      break;
+                    }
+                  }
+                }
+
+                if (parentIssueNumber) {
+                  console.log(`✅ Found parent: #${parentIssueNumber}`);
+                  return parentIssueNumber;
                 } else {
-                  console.log(`❌ No parent found - trackedInIssues is empty`);
-                  console.log(`This means no issue is tracking #${issueNum}`);
+                  console.log(`❌ No parent field found for issue #${issueNum}`);
                   return null;
                 }
 
               } catch (error) {
                 console.error(`❌ Error finding parent: ${error.message}`);
                 console.error(`Error type: ${error.constructor.name}`);
-                if (error.response) {
-                  console.error(`Response status: ${error.response.status}`);
-                  console.error(`Response data:`, JSON.stringify(error.response.data, null, 2));
-                }
                 if (error.errors) {
                   console.error(`GraphQL errors:`, JSON.stringify(error.errors, null, 2));
                 }
@@ -191,23 +281,52 @@ jobs:
               }
             }
 
-            // Helper function to find children using native sub-issues (supports cross-repo)
+            // Helper function to find children by querying the project's parent field
             async function findChildIssues(parentNum) {
-              console.log(`Finding children of issue #${parentNum}...`);
+              console.log(`🔍 Finding children of issue #${parentNum} via project fields...`);
 
-              // Use GraphQL to get sub-issues (supports cross-repository relationships)
               try {
-                const graphqlQuery = `
-                  query {
-                    repository(owner: "${context.repo.owner}", name: "${context.repo.repo}") {
-                      issue(number: ${parentNum}) {
-                        trackedIssues(first: 100) {
-                          nodes {
-                            number
-                            repository {
-                              name
-                              owner {
-                                login
+                // Query all project items and find ones where parent field = parentNum
+                const projectQuery = `
+                  query($owner: String!) {
+                    organization(login: $owner) {
+                      projectsV2(first: 10) {
+                        nodes {
+                          id
+                          title
+                          items(first: 100) {
+                            nodes {
+                              id
+                              content {
+                                ... on Issue {
+                                  number
+                                  title
+                                  repository {
+                                    name
+                                    owner { login }
+                                  }
+                                  state
+                                }
+                              }
+                              fieldValues(first: 20) {
+                                nodes {
+                                  ... on ProjectV2ItemFieldIssueValue {
+                                    issues(first: 5) {
+                                      nodes {
+                                        number
+                                        repository {
+                                          name
+                                          owner { login }
+                                        }
+                                      }
+                                    }
+                                    field {
+                                      ... on ProjectV2Field {
+                                        name
+                                      }
+                                    }
+                                  }
+                                }
                               }
                             }
                           }
@@ -217,27 +336,66 @@ jobs:
                   }
                 `;
 
-                const result = await github.graphql(graphqlQuery);
-                const children = result.repository.issue.trackedIssues.nodes;
+                const result = await github.graphql(projectQuery, {
+                  owner: context.repo.owner
+                });
 
-                if (children && children.length > 0) {
-                  // Log with repo info for cross-repo children
+                const projects = result.organization.projectsV2.nodes;
+                const targetProject = projects.find(p => p.title === '[TEMPLATE] EngageMe');
+
+                if (!targetProject) {
+                  console.log(`❌ Project '[TEMPLATE] EngageMe' not found`);
+                  return [];
+                }
+
+                console.log(`Found project: ${targetProject.title}`);
+
+                // Find all items where parent field points to parentNum
+                const children = [];
+
+                for (const item of targetProject.items.nodes) {
+                  if (!item.content || !item.content.number) continue;
+                  if (item.content.state !== 'OPEN') continue; // Skip closed issues
+
+                  // Look for parent field
+                  for (const fieldValue of item.fieldValues.nodes) {
+                    if (!fieldValue.field) continue;
+
+                    const fieldName = fieldValue.field.name;
+
+                    // Check if this is a parent field pointing to our parentNum
+                    if (fieldName.toLowerCase().includes('parent') && fieldValue.issues) {
+                      const parentIssues = fieldValue.issues.nodes;
+                      if (parentIssues.some(p => p.number === parentNum)) {
+                        children.push({
+                          number: item.content.number,
+                          repository: item.content.repository
+                        });
+                        break;
+                      }
+                    }
+                  }
+                }
+
+                if (children.length > 0) {
                   const childLabels = children.map(c => {
                     if (c.repository.name !== context.repo.repo) {
                       return `${c.repository.name}#${c.number}`;
                     }
                     return `#${c.number}`;
                   }).join(', ');
-
-                  console.log(`Found ${children.length} children via GraphQL: ${childLabels}`);
-                  return children; // Return full objects with repository info
+                  console.log(`✅ Found ${children.length} children: ${childLabels}`);
+                } else {
+                  console.log(`No children found for #${parentNum}`);
                 }
-              } catch (error) {
-                console.log(`Could not get sub-issues from GraphQL: ${error.message}`);
-              }
 
-              console.log('No children found');
-              return [];
+                return children;
+
+              } catch (error) {
+                console.error(`❌ Error finding children: ${error.message}`);
+                console.error(`Stack: ${error.stack}`);
+                return [];
+              }
             }
 
             console.log(`📌 Processing: #${issueNumber} - ${issue.data.title}`);
