@@ -1,5 +1,15 @@
 name: Scheduled Rollup - All Issues
 
+# This workflow performs scheduled rollup of estimates for all parent issues
+#
+# PAGINATION IMPLEMENTATION:
+# - Project items: Fully paginated (handles >100 items via cursor-based pagination)
+# - Project fields: Limited to first 20 (sufficient for typical projects)
+# - Field values per item: Limited to first 20 (sufficient for typical items)
+#
+# Both getProjectFields and the main allProjectItemsQuery use pagination
+# to ensure all issues are processed regardless of project size.
+
 on:
   schedule:
     # Run every 15 minutes
@@ -58,6 +68,7 @@ jobs:
 
             // Function to get all project fields for an issue
             // Supports cross-repo by accepting owner/repo parameters
+            // Uses cursor-based pagination to handle projects with >100 items
             async function getProjectFields(issueNumber, owner = context.repo.owner, repo = context.repo.repo) {
               const issue = await github.rest.issues.get({
                 owner: owner,
@@ -65,44 +76,14 @@ jobs:
                 issue_number: issueNumber
               });
 
-              // Get all projects and their items (organization-level projects)
-              const projectQuery = `
+              // First, get project metadata (ID, title, fields)
+              const projectMetadataQuery = `
                 query($owner: String!) {
                   organization(login: $owner) {
                     projectsV2(first: 10) {
                       nodes {
                         id
                         title
-                        items(first: 100) {
-                          nodes {
-                            id
-                            content {
-                              ... on Issue {
-                                id
-                                number
-                                repository {
-                                  name
-                                  owner {
-                                    login
-                                  }
-                                }
-                              }
-                            }
-                            fieldValues(first: 20) {
-                              nodes {
-                                ... on ProjectV2ItemFieldNumberValue {
-                                  number
-                                  field {
-                                    ... on ProjectV2Field {
-                                      id
-                                      name
-                                    }
-                                  }
-                                }
-                              }
-                            }
-                          }
-                        }
                         fields(first: 20) {
                           nodes {
                             ... on ProjectV2Field {
@@ -118,11 +99,11 @@ jobs:
                 }
               `;
 
-              const projectResult = await github.graphql(projectQuery, {
+              const metadataResult = await github.graphql(projectMetadataQuery, {
                 owner: context.repo.owner
               });
 
-              const projects = projectResult.organization.projectsV2.nodes;
+              const projects = metadataResult.organization.projectsV2.nodes;
 
               // Find the specific project "[TEMPLATE] EngageMe"
               const project = projects.find(p => p.title === '[TEMPLATE] EngageMe');
@@ -131,8 +112,70 @@ jobs:
                 return null;
               }
 
+              // Paginate through project items to find the issue
+              const itemsQuery = `
+                query($owner: String!, $projectId: ID!, $cursor: String) {
+                  node(id: $projectId) {
+                    ... on ProjectV2 {
+                      items(first: 100, after: $cursor) {
+                        pageInfo {
+                          hasNextPage
+                          endCursor
+                        }
+                        nodes {
+                          id
+                          content {
+                            ... on Issue {
+                              id
+                              number
+                              repository {
+                                name
+                                owner {
+                                  login
+                                }
+                              }
+                            }
+                          }
+                          fieldValues(first: 20) {
+                            nodes {
+                              ... on ProjectV2ItemFieldNumberValue {
+                                number
+                                field {
+                                  ... on ProjectV2Field {
+                                    id
+                                    name
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              `;
+
+              let allItems = [];
+              let hasNextPage = true;
+              let cursor = null;
+
+              while (hasNextPage) {
+                const itemsResult = await github.graphql(itemsQuery, {
+                  owner: context.repo.owner,
+                  projectId: project.id,
+                  cursor: cursor
+                });
+
+                const items = itemsResult.node.items;
+                allItems.push(...items.nodes);
+
+                hasNextPage = items.pageInfo.hasNextPage;
+                cursor = items.pageInfo.endCursor;
+              }
+
               // Find the item for this issue (match by number AND repository for cross-repo support)
-              const item = project.items.nodes.find(i => {
+              const item = allItems.find(i => {
                 if (!i.content || i.content.number !== issueNumber) return false;
 
                 // For cross-repo, also match repository
@@ -194,25 +237,53 @@ jobs:
             // Get all issues from ALL repos via the project
             console.log('Fetching all issues from project (all repos)...');
 
-            const allProjectItemsQuery = `
+            // First, get project metadata to find the project ID
+            const projectMetadataQuery = `
               query($owner: String!) {
                 organization(login: $owner) {
                   projectsV2(first: 10) {
                     nodes {
+                      id
                       title
-                      items(first: 100) {
-                        nodes {
-                          content {
-                            ... on Issue {
-                              id
-                              number
-                              title
-                              state
-                              repository {
-                                name
-                                owner {
-                                  login
-                                }
+                    }
+                  }
+                }
+              }
+            `;
+
+            const projectMetadataResult = await github.graphql(projectMetadataQuery, {
+              owner: context.repo.owner
+            });
+
+            const targetProject = projectMetadataResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
+            if (!targetProject) {
+              console.log('❌ Project not found');
+              return;
+            }
+
+            console.log(`Found project: ${targetProject.title} (ID: ${targetProject.id})`);
+
+            // Paginate through all project items
+            const itemsQuery = `
+              query($owner: String!, $projectId: ID!, $cursor: String) {
+                node(id: $projectId) {
+                  ... on ProjectV2 {
+                    items(first: 100, after: $cursor) {
+                      pageInfo {
+                        hasNextPage
+                        endCursor
+                      }
+                      nodes {
+                        content {
+                          ... on Issue {
+                            id
+                            number
+                            title
+                            state
+                            repository {
+                              name
+                              owner {
+                                login
                               }
                             }
                           }
@@ -224,17 +295,33 @@ jobs:
               }
             `;
 
-            const projectItemsResult = await github.graphql(allProjectItemsQuery, {
-              owner: context.repo.owner
-            });
+            let allProjectItems = [];
+            let hasNextPage = true;
+            let cursor = null;
+            let pageCount = 0;
 
-            const targetProject = projectItemsResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
-            if (!targetProject) {
-              console.log('❌ Project not found');
-              return;
+            while (hasNextPage) {
+              pageCount++;
+              console.log(`Fetching project items page ${pageCount}...`);
+
+              const itemsResult = await github.graphql(itemsQuery, {
+                owner: context.repo.owner,
+                projectId: targetProject.id,
+                cursor: cursor
+              });
+
+              const items = itemsResult.node.items;
+              allProjectItems.push(...items.nodes);
+
+              console.log(`  Fetched ${items.nodes.length} items (total so far: ${allProjectItems.length})`);
+
+              hasNextPage = items.pageInfo.hasNextPage;
+              cursor = items.pageInfo.endCursor;
             }
 
-            const allIssues = targetProject.items.nodes
+            console.log(`✅ Fetched all ${allProjectItems.length} project items across ${pageCount} page(s)`);
+
+            const allIssues = allProjectItems
               .filter(item => item.content && item.content.number && item.content.state === 'OPEN')
               .map(item => ({
                 number: item.content.number,
@@ -244,7 +331,7 @@ jobs:
                 repo: item.content.repository?.name || context.repo.repo
               }));
 
-            const totalIssuesInProject = targetProject.items.nodes.filter(item => item.content && item.content.number).length;
+            const totalIssuesInProject = allProjectItems.filter(item => item.content && item.content.number).length;
             console.log(`Found ${totalIssuesInProject} total issues in project (${allIssues.length} open, ignoring closed)`);
 
             // Group issues by repository

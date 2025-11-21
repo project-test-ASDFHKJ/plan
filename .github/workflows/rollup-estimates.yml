@@ -1,5 +1,15 @@
 name: Rollup Estimates and Remaining Work
 
+# This workflow rolls up estimate and remaining work values from children to parents
+#
+# CROSS-REPOSITORY SUPPORT:
+# - Child issues: Fully supported (can be in any repository within the organization)
+# - Parent issues: Assumed to be in the same repository as the workflow trigger
+#   (findParentIssue does not yet return repository information)
+#
+# When a child issue in a different repository is processed, its estimates
+# are correctly fetched and included in the parent's rollup calculation.
+
 on:
   workflow_dispatch:
     inputs:
@@ -217,13 +227,19 @@ jobs:
               return;
             }
 
-            // Function to get all project fields for an issue
-            async function getProjectFields(issueNumber) {
-              const issue = await github.rest.issues.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber
-              });
+            // Function to get all project fields for an issue (supports cross-repo)
+            async function getProjectFields(issueNumber, owner = context.repo.owner, repo = context.repo.repo) {
+              // Validate issue exists in specified repository
+              try {
+                const issue = await github.rest.issues.get({
+                  owner: owner,
+                  repo: repo,
+                  issue_number: issueNumber
+                });
+              } catch (error) {
+                console.log(`⚠️  Issue ${owner}/${repo}#${issueNumber} not found: ${error.message}`);
+                return null;
+              }
 
               // Get all projects and their items (organization-level projects)
               const projectQuery = `
@@ -240,6 +256,12 @@ jobs:
                               ... on Issue {
                                 id
                                 number
+                                repository {
+                                  name
+                                  owner {
+                                    login
+                                  }
+                                }
                               }
                             }
                             fieldValues(first: 20) {
@@ -273,7 +295,7 @@ jobs:
               `;
 
               const projectResult = await github.graphql(projectQuery, {
-                owner: context.repo.owner
+                owner: context.repo.owner  // Organization owner, not issue owner
               });
 
               const projects = projectResult.organization.projectsV2.nodes;
@@ -282,14 +304,20 @@ jobs:
               const project = projects.find(p => p.title === '[TEMPLATE] EngageMe');
 
               if (!project) {
-                console.log(`⚠️  Issue #${issueNumber} - [TEMPLATE] EngageMe project not found`);
+                console.log(`⚠️  Issue ${owner}/${repo}#${issueNumber} - [TEMPLATE] EngageMe project not found`);
                 return null;
               }
 
-              // Find the item for this issue
-              const item = project.items.nodes.find(i =>
-                i.content && i.content.number === issueNumber
-              );
+              // Find the item for this issue (match by number AND repository for cross-repo support)
+              const item = project.items.nodes.find(i => {
+                if (!i.content || i.content.number !== issueNumber) return false;
+
+                // For cross-repo support, also match repository
+                const itemOwner = i.content.repository?.owner?.login || context.repo.owner;
+                const itemRepo = i.content.repository?.name || context.repo.repo;
+
+                return itemOwner === owner && itemRepo === repo;
+              });
 
               if (item) {
                 const fields = {};
@@ -310,6 +338,7 @@ jobs:
                 };
               }
 
+              console.log(`⚠️  Issue ${owner}/${repo}#${issueNumber} not found in project items`);
               return null;
             }
 
@@ -354,10 +383,10 @@ jobs:
                 const childOwner = child.repository?.owner?.login || context.repo.owner;
                 const childRepo = child.repository?.name || context.repo.repo;
                 const childNumber = child.number;
+                const repoLabel = childRepo !== context.repo.repo ? `${childRepo}#${childNumber}` : `#${childNumber}`;
 
-                // Note: getProjectFields only works for same-repo issues since it uses context.repo
-                // Cross-repo issues need to be in the same project to be accessible
-                const projectFields = await getProjectFields(childNumber);
+                // Fetch project fields with explicit owner/repo for cross-repo support
+                const projectFields = await getProjectFields(childNumber, childOwner, childRepo);
 
                 if (projectFields && projectFields.fields) {
                   const estimate = projectFields.fields['Estimate']?.value || 0;
@@ -365,8 +394,6 @@ jobs:
 
                   totalEstimate += estimate;
                   totalRemaining += remaining;
-
-                  const repoLabel = childRepo !== context.repo.repo ? `${childRepo}#${childNumber}` : `#${childNumber}`;
 
                   childDetails.push({
                     number: childNumber,
