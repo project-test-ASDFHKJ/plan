@@ -113,54 +113,82 @@ jobs:
 
             const issueBody = issue.data.body || '';
 
-            // Helper function to find parent using native sub-issues
+            // Helper function to find parent using GitHub's native tracked issues
             async function findParentIssue(issueNum) {
-              console.log(`Looking for parent of issue #${issueNum}...`);
-              
-              // Method 1: Check GitHub's native sub-issues
+              console.log(`🔍 Looking for parent of issue #${issueNum} using GitHub native relationships...`);
+
               try {
+                // Query GraphQL for trackedInIssues (issues that track THIS issue = parents)
+                console.log(`Querying GraphQL trackedInIssues for #${issueNum}...`);
                 const graphqlQuery = `
                   query($owner: String!, $repo: String!, $issueNumber: Int!) {
                     repository(owner: $owner, name: $repo) {
                       issue(number: $issueNumber) {
-                        trackedInIssues(first: 1) {
+                        id
+                        number
+                        title
+                        trackedInIssues(first: 10) {
+                          totalCount
                           nodes {
                             number
+                            title
+                            repository {
+                              name
+                              owner {
+                                login
+                              }
+                            }
                           }
                         }
                       }
                     }
                   }
                 `;
+
                 const result = await github.graphql(graphqlQuery, {
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issueNumber: issueNum
                 });
-                const parent = result.repository.issue.trackedInIssues.nodes[0];
-                if (parent) {
-                  console.log(`Parent found via sub-issues: #${parent.number}`);
+
+                const issue = result.repository.issue;
+                const trackedInCount = issue.trackedInIssues.totalCount;
+                const parents = issue.trackedInIssues.nodes;
+
+                console.log(`Issue #${issue.number}: ${issue.title}`);
+                console.log(`trackedInIssues.totalCount: ${trackedInCount}`);
+                console.log(`Parents found: ${parents.length}`);
+
+                if (parents.length > 0) {
+                  parents.forEach((p, idx) => {
+                    const repoLabel = p.repository.name !== context.repo.repo
+                      ? `${p.repository.name}#${p.number}`
+                      : `#${p.number}`;
+                    console.log(`  Parent ${idx + 1}: ${repoLabel} - ${p.title}`);
+                  });
+
+                  const parent = parents[0];
+                  console.log(`✅ Using first parent: #${parent.number}`);
                   return parent.number;
+                } else {
+                  console.log(`❌ No parent found - trackedInIssues is empty`);
+                  console.log(`This means no issue is tracking #${issueNum}`);
+                  return null;
                 }
+
               } catch (error) {
-                console.log(`Could not query sub-issues: ${error.message}`);
+                console.error(`❌ Error finding parent: ${error.message}`);
+                console.error(`Error type: ${error.constructor.name}`);
+                if (error.response) {
+                  console.error(`Response status: ${error.response.status}`);
+                  console.error(`Response data:`, JSON.stringify(error.response.data, null, 2));
+                }
+                if (error.errors) {
+                  console.error(`GraphQL errors:`, JSON.stringify(error.errors, null, 2));
+                }
+                console.error(`Stack: ${error.stack}`);
+                return null;
               }
-              
-              // Method 2: Fall back to description parsing
-              const issue = await github.rest.issues.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNum
-              });
-              const body = issue.data.body || '';
-              const bodyWithoutComments = body.replace(/<!--[\s\S]*?-->/g, '');
-              const parentMatch = bodyWithoutComments.match(/(?:Epic|Feature|Parent Feature|Parent Epic):\s*#(\d+)/i);
-              if (parentMatch) {
-                const parentNum = parseInt(parentMatch[1]);
-                console.log(`Parent found via description: #${parentNum}`);
-                return parentNum;
-              }
-              return null;
             }
 
             // Helper function to find children using native sub-issues (supports cross-repo)
