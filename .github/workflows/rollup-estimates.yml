@@ -119,6 +119,8 @@ jobs:
 
               try {
                 // Query the project to find this issue and its parent field
+                // Note: "Parent issue" in GitHub Projects UI uses the tracked issues relationship,
+                // not a separate field. We need to query the issue's relationship data.
                 const projectQuery = `
                   query($owner: String!) {
                     organization(login: $owner) {
@@ -165,29 +167,18 @@ jobs:
                                       }
                                     }
                                   }
-                                  ... on ProjectV2ItemFieldRepositoryValue {
-                                    repository {
-                                      name
-                                    }
+                                  ... on ProjectV2ItemFieldDateValue {
+                                    date
                                     field {
                                       ... on ProjectV2Field {
                                         name
                                       }
                                     }
                                   }
-                                  ... on ProjectV2ItemFieldIssueValue {
-                                    issues(first: 5) {
-                                      nodes {
-                                        number
-                                        title
-                                        repository {
-                                          name
-                                          owner { login }
-                                        }
-                                      }
-                                    }
+                                  ... on ProjectV2ItemFieldIterationValue {
+                                    title
                                     field {
-                                      ... on ProjectV2Field {
+                                      ... on ProjectV2IterationField {
                                         name
                                       }
                                     }
@@ -230,45 +221,44 @@ jobs:
                 }
 
                 console.log(`Found issue #${issueNum} in project: ${item.content.title}`);
+                console.log(`Issue has ${item.fieldValues.nodes.length} field values`);
 
-                // Look for parent field (could be "Parent issue" or "Parent Issue" or similar)
-                let parentIssueNumber = null;
-
+                // Debug: Print ALL fields to see what's available
+                console.log(`\nDEBUG: All field values for #${issueNum}:`);
                 for (const fieldValue of item.fieldValues.nodes) {
-                  if (!fieldValue.field) continue;
+                  if (!fieldValue.field) {
+                    console.log(`  - (field without name)`);
+                    continue;
+                  }
 
                   const fieldName = fieldValue.field.name;
-                  console.log(`  Field: ${fieldName}`);
+                  let value = 'unknown type';
 
-                  // Check for issue-type field that contains parent
-                  if (fieldName.toLowerCase().includes('parent') && fieldValue.issues) {
-                    const parentIssues = fieldValue.issues.nodes;
-                    console.log(`    Found parent field with ${parentIssues.length} issue(s)`);
-                    if (parentIssues.length > 0) {
-                      parentIssueNumber = parentIssues[0].number;
-                      console.log(`    ✅ Parent: #${parentIssueNumber} - ${parentIssues[0].title}`);
-                      break;
-                    }
-                  }
+                  if (fieldValue.text) value = `text: "${fieldValue.text}"`;
+                  else if (fieldValue.number !== undefined) value = `number: ${fieldValue.number}`;
+                  else if (fieldValue.name) value = `select: "${fieldValue.name}"`;
+                  else if (fieldValue.date) value = `date: ${fieldValue.date}`;
+                  else if (fieldValue.title) value = `iteration: "${fieldValue.title}"`;
 
-                  // Check for text field with issue number
-                  if (fieldName.toLowerCase().includes('parent') && fieldValue.text) {
-                    const match = fieldValue.text.match(/#?(\d+)/);
-                    if (match) {
-                      parentIssueNumber = parseInt(match[1]);
-                      console.log(`    ✅ Parent from text field: #${parentIssueNumber}`);
-                      break;
-                    }
-                  }
+                  console.log(`  - ${fieldName}: ${value}`);
                 }
+                console.log(``);
 
-                if (parentIssueNumber) {
-                  console.log(`✅ Found parent: #${parentIssueNumber}`);
-                  return parentIssueNumber;
-                } else {
-                  console.log(`❌ No parent field found for issue #${issueNum}`);
-                  return null;
-                }
+                // The "Parent issue" shown in GitHub UI uses trackedInIssues relationship, not a project field
+                // Since we confirmed trackedInIssues returns 0, the relationship isn't properly set
+                console.log(`❌ IMPORTANT: "Parent issue" in GitHub's UI is NOT stored as a project field.`);
+                console.log(`   It uses GitHub's tracked issues relationship (trackedInIssues API).`);
+                console.log(`   Our earlier check confirmed this returns 0 results for #${issueNum}.`);
+                console.log(``);
+                console.log(`   TO FIX: You need to properly create the parent-child relationship:`);
+                console.log(`   1. Go to issue #75 (the parent)`);
+                console.log(`   2. Look for "Sub-issues" section or click "..." menu`);
+                console.log(`   3. Click "Add sub-issue" or "Convert to sub-issue"`);
+                console.log(`   4. Select #76, #77 as sub-issues`);
+                console.log(`   5. This will register the relationship in GitHub's API`);
+                console.log(``);
+
+                return null;
 
               } catch (error) {
                 console.error(`❌ Error finding parent: ${error.message}`);
@@ -281,52 +271,25 @@ jobs:
               }
             }
 
-            // Helper function to find children by querying the project's parent field
+            // Helper function to find children using GitHub's tracked issues API
             async function findChildIssues(parentNum) {
-              console.log(`🔍 Finding children of issue #${parentNum} via project fields...`);
+              console.log(`🔍 Finding children of issue #${parentNum} via trackedIssues API...`);
 
               try {
-                // Query all project items and find ones where parent field = parentNum
-                const projectQuery = `
-                  query($owner: String!) {
-                    organization(login: $owner) {
-                      projectsV2(first: 10) {
-                        nodes {
-                          id
-                          title
-                          items(first: 100) {
-                            nodes {
-                              id
-                              content {
-                                ... on Issue {
-                                  number
-                                  title
-                                  repository {
-                                    name
-                                    owner { login }
-                                  }
-                                  state
-                                }
-                              }
-                              fieldValues(first: 20) {
-                                nodes {
-                                  ... on ProjectV2ItemFieldIssueValue {
-                                    issues(first: 5) {
-                                      nodes {
-                                        number
-                                        repository {
-                                          name
-                                          owner { login }
-                                        }
-                                      }
-                                    }
-                                    field {
-                                      ... on ProjectV2Field {
-                                        name
-                                      }
-                                    }
-                                  }
-                                }
+                const graphqlQuery = `
+                  query($owner: String!, $repo: String!, $parentNumber: Int!) {
+                    repository(owner: $owner, name: $repo) {
+                      issue(number: $parentNumber) {
+                        trackedIssues(first: 100) {
+                          totalCount
+                          nodes {
+                            number
+                            title
+                            state
+                            repository {
+                              name
+                              owner {
+                                login
                               }
                             }
                           }
@@ -336,60 +299,35 @@ jobs:
                   }
                 `;
 
-                const result = await github.graphql(projectQuery, {
-                  owner: context.repo.owner
+                const result = await github.graphql(graphqlQuery, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  parentNumber: parentNum
                 });
 
-                const projects = result.organization.projectsV2.nodes;
-                const targetProject = projects.find(p => p.title === '[TEMPLATE] EngageMe');
+                const trackedIssues = result.repository.issue.trackedIssues;
+                const allChildren = trackedIssues.nodes;
+                const openChildren = allChildren.filter(c => c.state === 'OPEN');
 
-                if (!targetProject) {
-                  console.log(`❌ Project '[TEMPLATE] EngageMe' not found`);
-                  return [];
-                }
+                console.log(`trackedIssues.totalCount: ${trackedIssues.totalCount}`);
+                console.log(`Open children: ${openChildren.length} / ${allChildren.length}`);
 
-                console.log(`Found project: ${targetProject.title}`);
-
-                // Find all items where parent field points to parentNum
-                const children = [];
-
-                for (const item of targetProject.items.nodes) {
-                  if (!item.content || !item.content.number) continue;
-                  if (item.content.state !== 'OPEN') continue; // Skip closed issues
-
-                  // Look for parent field
-                  for (const fieldValue of item.fieldValues.nodes) {
-                    if (!fieldValue.field) continue;
-
-                    const fieldName = fieldValue.field.name;
-
-                    // Check if this is a parent field pointing to our parentNum
-                    if (fieldName.toLowerCase().includes('parent') && fieldValue.issues) {
-                      const parentIssues = fieldValue.issues.nodes;
-                      if (parentIssues.some(p => p.number === parentNum)) {
-                        children.push({
-                          number: item.content.number,
-                          repository: item.content.repository
-                        });
-                        break;
-                      }
-                    }
-                  }
-                }
-
-                if (children.length > 0) {
-                  const childLabels = children.map(c => {
+                if (openChildren.length > 0) {
+                  const childLabels = openChildren.map(c => {
                     if (c.repository.name !== context.repo.repo) {
                       return `${c.repository.name}#${c.number}`;
                     }
                     return `#${c.number}`;
                   }).join(', ');
-                  console.log(`✅ Found ${children.length} children: ${childLabels}`);
+                  console.log(`✅ Found children: ${childLabels}`);
+                } else if (allChildren.length > 0) {
+                  console.log(`⚠️  All ${allChildren.length} children are CLOSED`);
                 } else {
-                  console.log(`No children found for #${parentNum}`);
+                  console.log(`No children found - trackedIssues is empty`);
+                  console.log(`This means #${parentNum} has no sub-issues registered in GitHub's API`);
                 }
 
-                return children;
+                return openChildren;
 
               } catch (error) {
                 console.error(`❌ Error finding children: ${error.message}`);
