@@ -265,7 +265,7 @@ jobs:
 
             // Paginate through all project items
             const itemsQuery = `
-              query($owner: String!, $projectId: ID!, $cursor: String) {
+              query($projectId: ID!, $cursor: String) {
                 node(id: $projectId) {
                   ... on ProjectV2 {
                     items(first: 100, after: $cursor) {
@@ -305,7 +305,6 @@ jobs:
               console.log(`Fetching project items page ${pageCount}...`);
 
               const itemsResult = await github.graphql(itemsQuery, {
-                owner: context.repo.owner,
                 projectId: targetProject.id,
                 cursor: cursor
               });
