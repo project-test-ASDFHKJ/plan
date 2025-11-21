@@ -84,25 +84,20 @@ jobs:
               console.log('✅ Triggered by "sync" label');
             }
 
-
-            // Schedule label removal at start (runs async, happens after 5 seconds)
-            const removeLabelPromise = (async () => {
-              if (context.eventName === 'issues' && context.payload.action === 'labeled' && context.payload.label.name === 'sync') {
-                // Wait to ensure workflow has time to process
-                await new Promise(r => setTimeout(r, 5000));
-                try {
-                  await github.rest.issues.removeLabel({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: issueNumber,
-                    name: 'sync'
-                  });
-                  console.log('✅ Removed "sync" label - workflow can be re-triggered');
-                } catch (error) {
-                  console.log('ℹ️  Could not remove sync label:', error.message);
-                }
+            // Remove 'sync' label immediately to prevent race conditions
+            if (context.eventName === 'issues' && context.payload.action === 'labeled' && context.payload.label.name === 'sync') {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber,
+                  name: 'sync'
+                });
+                console.log('✅ Removed "sync" label - workflow can be re-triggered');
+              } catch (error) {
+                console.log('ℹ️  Could not remove sync label:', error.message);
               }
-            })();
+            }
 
             // Get issue details
             const issue = await github.rest.issues.get({
