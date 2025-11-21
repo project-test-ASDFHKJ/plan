@@ -1,0 +1,132 @@
+name: Debug Relationships
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to debug'
+        required: true
+        type: number
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+
+      - name: Debug Issue Relationships
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const issueNumber = parseInt(context.payload.inputs.issue_number);
+            console.log(`\n🔍 DEBUGGING ISSUE #${issueNumber}\n`);
+            console.log('='.repeat(60));
+
+            // Query both parent and child relationships
+            const query = `
+              query($owner: String!, $repo: String!, $issueNumber: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  issue(number: $issueNumber) {
+                    id
+                    number
+                    title
+                    url
+
+                    # Issues that THIS issue tracks (children)
+                    trackedIssues(first: 20) {
+                      totalCount
+                      nodes {
+                        number
+                        title
+                        url
+                        repository {
+                          name
+                          owner { login }
+                        }
+                      }
+                    }
+
+                    # Issues that track THIS issue (parents)
+                    trackedInIssues(first: 20) {
+                      totalCount
+                      nodes {
+                        number
+                        title
+                        url
+                        repository {
+                          name
+                          owner { login }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            `;
+
+            try {
+              const result = await github.graphql(query, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issueNumber: issueNumber
+              });
+
+              const issue = result.repository.issue;
+
+              console.log(`\n📄 ISSUE DETAILS`);
+              console.log(`   Number: #${issue.number}`);
+              console.log(`   Title: ${issue.title}`);
+              console.log(`   URL: ${issue.url}`);
+              console.log(`   ID: ${issue.id}`);
+
+              console.log(`\n👶 CHILDREN (trackedIssues)`);
+              console.log(`   Total Count: ${issue.trackedIssues.totalCount}`);
+              if (issue.trackedIssues.nodes.length > 0) {
+                issue.trackedIssues.nodes.forEach((child, idx) => {
+                  const repoLabel = child.repository.name !== context.repo.repo
+                    ? `${child.repository.name}#${child.number}`
+                    : `#${child.number}`;
+                  console.log(`   ${idx + 1}. ${repoLabel} - ${child.title}`);
+                  console.log(`      URL: ${child.url}`);
+                });
+              } else {
+                console.log(`   (none)`);
+              }
+
+              console.log(`\n👨 PARENTS (trackedInIssues)`);
+              console.log(`   Total Count: ${issue.trackedInIssues.totalCount}`);
+              if (issue.trackedInIssues.nodes.length > 0) {
+                issue.trackedInIssues.nodes.forEach((parent, idx) => {
+                  const repoLabel = parent.repository.name !== context.repo.repo
+                    ? `${parent.repository.name}#${parent.number}`
+                    : `#${parent.number}`;
+                  console.log(`   ${idx + 1}. ${repoLabel} - ${parent.title}`);
+                  console.log(`      URL: ${parent.url}`);
+                });
+              } else {
+                console.log(`   (none)`);
+              }
+
+              console.log(`\n${'='.repeat(60)}`);
+              console.log(`✅ Query completed successfully\n`);
+
+            } catch (error) {
+              console.error(`\n❌ ERROR QUERYING ISSUE`);
+              console.error(`   Message: ${error.message}`);
+              console.error(`   Type: ${error.constructor.name}`);
+              if (error.errors) {
+                console.error(`   GraphQL Errors:`);
+                error.errors.forEach((err, idx) => {
+                  console.error(`     ${idx + 1}. ${err.message}`);
+                  console.error(`        Path: ${JSON.stringify(err.path)}`);
+                });
+              }
+              console.error(`   Stack: ${error.stack}`);
+              throw error;
+            }
