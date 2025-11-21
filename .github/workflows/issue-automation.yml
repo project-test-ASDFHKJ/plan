@@ -1878,23 +1878,30 @@ jobs:
               async function syncParentState(childIssueNumber, depth = 0) {
                 const indent = '  '.repeat(depth);
 
-                // Get the child issue to find its parent
+                // Get the child issue to find its parent via REST API
                 const childIssue = await github.rest.issues.get({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: childIssueNumber
                 });
 
-                const childBody = childIssue.data.body || '';
-                const bodyWithoutComments = childBody.replace(/<!--[\s\S]*?-->/g, '');
-                const parentMatch = bodyWithoutComments.match(/(?:Epic|Feature|Parent Feature|Parent Epic):\s*#(\d+)/i);
+                // Use REST API parent_issue_url field (more reliable than description parsing)
+                const parentUrl = childIssue.data.parent_issue_url;
 
-                if (!parentMatch) {
-                  console.log(`${indent}ℹ️  Issue #${childIssueNumber} has no parent reference`);
+                if (!parentUrl) {
+                  console.log(`${indent}ℹ️  Issue #${childIssueNumber} has no parent`);
                   return;
                 }
 
-                const parentNumber = parseInt(parentMatch[1]);
+                // Extract parent issue number from URL
+                // URL format: https://api.github.com/repos/owner/repo/issues/NUMBER
+                const match = parentUrl.match(/\/issues\/(\d+)$/);
+                if (!match) {
+                  console.log(`${indent}⚠️  Could not parse parent URL: ${parentUrl}`);
+                  return;
+                }
+
+                const parentNumber = parseInt(match[1]);
                 console.log(`${indent}📋 Found parent: #${parentNumber}`);
 
                 // Get parent issue
