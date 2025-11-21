@@ -194,15 +194,25 @@ jobs:
                 `;
 
                 console.log(`Querying project for issue #${issueNum}...`);
+                console.log(`Organization owner: ${context.repo.owner}`);
+                console.log(`Repository: ${context.repo.owner}/${context.repo.repo}`);
+
                 const result = await github.graphql(projectQuery, {
                   owner: context.repo.owner
                 });
 
                 const projects = result.organization.projectsV2.nodes;
+                console.log(`Found ${projects.length} project(s) in organization:`);
+                projects.forEach((p, idx) => {
+                  console.log(`  ${idx + 1}. "${p.title}" (ID: ${p.id})`);
+                });
+
                 const targetProject = projects.find(p => p.title === '[TEMPLATE] EngageMe');
 
                 if (!targetProject) {
-                  console.log(`❌ Project '[TEMPLATE] EngageMe' not found`);
+                  console.log(`\n❌ Project '[TEMPLATE] EngageMe' not found`);
+                  console.log(`Looking for exact match: "[TEMPLATE] EngageMe"`);
+                  console.log(`\nPlease update the PROJECT_NAME in the workflow file if the name is different.`);
                   return null;
                 }
 
