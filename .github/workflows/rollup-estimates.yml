@@ -118,12 +118,14 @@ jobs:
               console.log(`🔍 Looking for parent of issue #${issueNum} via project fields...`);
 
               try {
-                // Query the project to find this issue and its parent field
-                // Note: "Parent issue" in GitHub Projects UI uses the tracked issues relationship,
-                // not a separate field. We need to query the issue's relationship data.
-                const projectQuery = `
-                  query($owner: String!) {
-                    organization(login: $owner) {
+                // Query both organization AND repository level projects
+                console.log(`Querying projects for issue #${issueNum}...`);
+                console.log(`Repository: ${context.repo.owner}/${context.repo.repo}`);
+
+                // Try repository-level projects first
+                const repoProjectQuery = `
+                  query($owner: String!, $repo: String!) {
+                    repository(owner: $owner, name: $repo) {
                       projectsV2(first: 10) {
                         nodes {
                           id
@@ -193,15 +195,46 @@ jobs:
                   }
                 `;
 
-                console.log(`Querying project for issue #${issueNum}...`);
-                console.log(`Organization owner: ${context.repo.owner}`);
-                console.log(`Repository: ${context.repo.owner}/${context.repo.repo}`);
+                let projects = [];
 
-                const result = await github.graphql(projectQuery, {
-                  owner: context.repo.owner
-                });
+                // Try repository-level projects
+                try {
+                  console.log(`Checking repository-level projects...`);
+                  const repoResult = await github.graphql(repoProjectQuery, {
+                    owner: context.repo.owner,
+                    repo: context.repo.repo
+                  });
+                  projects = repoResult.repository.projectsV2.nodes;
+                  console.log(`Found ${projects.length} repository-level project(s)`);
+                } catch (error) {
+                  console.log(`Could not query repository projects: ${error.message}`);
+                }
 
-                const projects = result.organization.projectsV2.nodes;
+                // If no repo projects, try organization-level
+                if (projects.length === 0) {
+                  try {
+                    console.log(`Checking organization-level projects...`);
+                    const orgProjectQuery = `
+                      query($owner: String!) {
+                        organization(login: $owner) {
+                          projectsV2(first: 10) {
+                            nodes {
+                              id
+                              title
+                            }
+                          }
+                        }
+                      }
+                    `;
+                    const orgResult = await github.graphql(orgProjectQuery, {
+                      owner: context.repo.owner
+                    });
+                    projects = orgResult.organization.projectsV2.nodes;
+                    console.log(`Found ${projects.length} organization-level project(s)`);
+                  } catch (error) {
+                    console.log(`Could not query organization projects: ${error.message}`);
+                  }
+                }
                 console.log(`Found ${projects.length} project(s) in organization:`);
                 projects.forEach((p, idx) => {
                   console.log(`  ${idx + 1}. "${p.title}" (ID: ${p.id})`);
