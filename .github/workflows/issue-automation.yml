@@ -1869,6 +1869,96 @@ jobs:
                 } else {
                   console.log('ℹ️  No open descendants to close');
                 }
+
+                // Set Remaining to 0 for the closed issue
+                console.log(`\n📊 Setting Remaining to 0 for closed issue #${issueNumber}...`);
+                try {
+                  const issueData = await github.rest.issues.get({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issueNumber
+                  });
+
+                  const projectQuery = `
+                    query($owner: String!) {
+                      organization(login: $owner) {
+                        projectsV2(first: 10) {
+                          nodes {
+                            id
+                            title
+                            items(first: 100) {
+                              nodes {
+                                id
+                                content {
+                                  ... on Issue {
+                                    id
+                                    number
+                                  }
+                                }
+                              }
+                            }
+                            fields(first: 20) {
+                              nodes {
+                                ... on ProjectV2Field {
+                                  id
+                                  name
+                                  dataType
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  `;
+
+                  const projectResult = await github.graphql(projectQuery, {
+                    owner: context.repo.owner
+                  });
+
+                  const project = projectResult.organization.projectsV2.nodes.find(p => p.title === '[TEMPLATE] EngageMe');
+                  if (project) {
+                    const item = project.items.nodes.find(i =>
+                      i.content && i.content.number === issueNumber
+                    );
+
+                    if (item) {
+                      const remainingField = project.fields.nodes.find(f => f.name === 'Remaining');
+
+                      if (remainingField) {
+                        const updateRemainingMutation = `
+                          mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: Float!) {
+                            updateProjectV2ItemFieldValue(input: {
+                              projectId: $projectId
+                              itemId: $itemId
+                              fieldId: $fieldId
+                              value: { number: $value }
+                            }) {
+                              projectV2Item { id }
+                            }
+                          }
+                        `;
+
+                        await github.graphql(updateRemainingMutation, {
+                          projectId: project.id,
+                          itemId: item.id,
+                          fieldId: remainingField.id,
+                          value: 0
+                        });
+
+                        console.log(`✅ Set Remaining to 0 for #${issueNumber}`);
+                      } else {
+                        console.log('⚠️  Remaining field not found in project');
+                      }
+                    } else {
+                      console.log('ℹ️  Issue not found in project');
+                    }
+                  } else {
+                    console.log('ℹ️  [TEMPLATE] EngageMe project not found');
+                  }
+                } catch (error) {
+                  console.log(`⚠️  Could not set Remaining to 0: ${error.message}`);
+                }
               }
 
               // Second: Sync parent state based on children state
