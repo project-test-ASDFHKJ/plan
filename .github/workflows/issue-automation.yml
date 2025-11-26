@@ -154,6 +154,40 @@ jobs:
               return closedIssues;
             }
 
+            // Helper function to find milestone by name in a repo
+            async function findMilestoneByName(targetOwner, targetRepo, milestoneName) {
+              if (!milestoneName) return null;
+
+              try {
+                // Check open milestones first
+                const openMilestones = await github.rest.issues.listMilestones({
+                  owner: targetOwner,
+                  repo: targetRepo,
+                  state: 'open',
+                  per_page: 100
+                });
+
+                let found = openMilestones.data.find(m => m.title === milestoneName);
+                if (found) return found.number;
+
+                // Check closed milestones
+                const closedMilestones = await github.rest.issues.listMilestones({
+                  owner: targetOwner,
+                  repo: targetRepo,
+                  state: 'closed',
+                  per_page: 100
+                });
+
+                found = closedMilestones.data.find(m => m.title === milestoneName);
+                if (found) return found.number;
+
+                return null;
+              } catch (error) {
+                console.log(`⚠️  Could not list milestones in ${targetOwner}/${targetRepo}: ${error.message}`);
+                return null;
+              }
+            }
+
             async function updateDescendantsMilestone(parentNumber, milestone, depth = 0, updatedIssues = new Set(), owner = context.repo.owner, repo = context.repo.repo) {
               const indent = '  '.repeat(depth);
               const repoLabel = (owner !== context.repo.owner || repo !== context.repo.repo) ? `${owner}/${repo}#${parentNumber}` : `#${parentNumber}`;
@@ -167,49 +201,63 @@ jobs:
                 const childRepo = child.repository?.name || context.repo.repo;
                 const childNumber = child.number;
                 const isCrossRepo = childRepo !== context.repo.repo || childOwner !== context.repo.owner;
-                const repoLabel = isCrossRepo ? `${childOwner}/${childRepo}#${childNumber}` : `#${childNumber}`;
+                const childRepoLabel = isCrossRepo ? `${childOwner}/${childRepo}#${childNumber}` : `#${childNumber}`;
 
                 // Create unique key for cross-repo tracking
                 const issueKey = `${childOwner}/${childRepo}#${childNumber}`;
 
                 // Avoid infinite loops
                 if (updatedIssues.has(issueKey)) {
-                  console.log(`${indent}⏭️  Skipping ${repoLabel} (already processed)`);
+                  console.log(`${indent}⏭️  Skipping ${childRepoLabel} (already processed)`);
                   continue;
                 }
 
                 updatedIssues.add(issueKey);
 
                 try {
-                  const currentMilestone = child.milestone ? child.milestone.number : null;
-                  const targetMilestone = milestone ? milestone.number : null;
+                  const currentMilestoneName = child.milestone?.title || null;
+                  const targetMilestoneName = milestone?.title || null;
 
-                  if (currentMilestone !== targetMilestone) {
-                    console.log(`${indent}📝 Updating ${repoLabel} milestone from "${child.milestone?.title || 'none'}" to "${milestone?.title || 'none'}"`);
+                  if (currentMilestoneName !== targetMilestoneName) {
+                    console.log(`${indent}📝 Updating ${childRepoLabel} milestone from "${currentMilestoneName || 'none'}" to "${targetMilestoneName || 'none'}"`);
+
+                    // For cross-repo, find milestone by name in target repo
+                    let targetMilestoneNumber = null;
+                    if (targetMilestoneName) {
+                      if (isCrossRepo) {
+                        targetMilestoneNumber = await findMilestoneByName(childOwner, childRepo, targetMilestoneName);
+                        if (!targetMilestoneNumber) {
+                          console.log(`${indent}⚠️  Milestone "${targetMilestoneName}" not found in ${childOwner}/${childRepo} - run sync-milestones workflow first`);
+                          continue;
+                        }
+                      } else {
+                        targetMilestoneNumber = milestone.number;
+                      }
+                    }
 
                     await github.rest.issues.update({
                       owner: childOwner,
                       repo: childRepo,
                       issue_number: childNumber,
-                      milestone: targetMilestone
+                      milestone: targetMilestoneNumber
                     });
 
-                    console.log(`${indent}✅ Updated ${repoLabel}`);
+                    console.log(`${indent}✅ Updated ${childRepoLabel}`);
                   } else {
-                    console.log(`${indent}⏭️  ${repoLabel} already has correct milestone`);
+                    console.log(`${indent}⏭️  ${childRepoLabel} already has correct milestone`);
                   }
 
                   // Recursively update grandchildren (including cross-repo)
                   await updateDescendantsMilestone(childNumber, milestone, depth + 1, updatedIssues, childOwner, childRepo);
                 } catch (error) {
                   if (error.status === 410) {
-                    console.log(`${indent}⚠️  ${repoLabel} was deleted, skipping`);
+                    console.log(`${indent}⚠️  ${childRepoLabel} was deleted, skipping`);
                   } else if (error.status === 404) {
-                    console.log(`${indent}⚠️  ${repoLabel} not found or not accessible, skipping`);
+                    console.log(`${indent}⚠️  ${childRepoLabel} not found or not accessible, skipping`);
                   } else if (error.status === 403) {
-                    console.log(`${indent}⚠️  No permission to update ${repoLabel}, skipping`);
+                    console.log(`${indent}⚠️  No permission to update ${childRepoLabel}, skipping`);
                   } else {
-                    console.log(`${indent}❌ Error updating ${repoLabel}: ${error.message}`);
+                    console.log(`${indent}❌ Error updating ${childRepoLabel}: ${error.message}`);
                   }
                 }
               }
