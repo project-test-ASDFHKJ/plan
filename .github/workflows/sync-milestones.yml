@@ -1,8 +1,10 @@
 name: Sync Milestones Across Repos
 
 on:
+  milestone:
+    types: [created, edited, deleted]
   schedule:
-    # Run every hour
+    # Run every hour as backup
     - cron: '0 * * * *'
   workflow_dispatch:
     inputs:
@@ -35,98 +37,162 @@ jobs:
           script: |
             const dryRun = '${{ inputs.dry_run }}' === 'true';
             const org = context.repo.owner;
-            const sourceRepo = 'plan'; // Primary repo where milestones are defined
+            const sourceRepo = 'plan';
+            const SYNC_MARKER = '<!-- synced-from: plan -->';
 
-            console.log(`🔄 Syncing milestones from ${org}/${sourceRepo} to all repos...`);
-            if (dryRun) console.log('🧪 DRY RUN - No changes will be made');
+            // Helper to check if milestone was created by sync
+            function hasSyncMarker(description) {
+              return description && description.includes(SYNC_MARKER);
+            }
 
-            // Get all milestones from source repo (both open and closed)
-            const sourceMilestones = [];
-            for (const state of ['open', 'closed']) {
-              const milestones = await github.paginate(github.rest.issues.listMilestones, {
-                owner: org,
-                repo: sourceRepo,
-                state: state,
+            // Helper to add sync marker to description
+            function addSyncMarker(description) {
+              if (!description) return SYNC_MARKER;
+              if (hasSyncMarker(description)) return description;
+              return `${description}\n\n${SYNC_MARKER}`;
+            }
+
+            // Get all repos in the organization (excluding source and archived)
+            async function getTargetRepos() {
+              const repos = await github.paginate(github.rest.repos.listForOrg, {
+                org: org,
+                type: 'all',
                 per_page: 100
               });
-              sourceMilestones.push(...milestones);
+
+              return repos.filter(repo => !repo.archived && repo.name !== sourceRepo);
             }
 
-            console.log(`📋 Found ${sourceMilestones.length} milestones in ${sourceRepo}:`);
-            sourceMilestones.forEach(m => console.log(`  - ${m.title} (${m.state})`));
-
-            if (sourceMilestones.length === 0) {
-              console.log('ℹ️  No milestones to sync');
-              return;
-            }
-
-            // Get all repos in the organization
-            const repos = await github.paginate(github.rest.repos.listForOrg, {
-              org: org,
-              type: 'all',
-              per_page: 100
-            });
-
-            console.log(`\n📦 Found ${repos.length} repositories in ${org}`);
-
-            let created = 0;
-            let updated = 0;
-            let skipped = 0;
-
-            for (const repo of repos) {
-              if (repo.archived) {
-                console.log(`⏭️  Skipping ${repo.name} (archived)`);
-                continue;
-              }
-
-              if (repo.name === sourceRepo) {
-                console.log(`⏭️  Skipping ${repo.name} (source repo)`);
-                continue;
-              }
-
-              console.log(`\n🔍 Processing ${repo.name}...`);
-
-              // Get existing milestones in target repo
-              const existingMilestones = [];
+            // Get existing milestone by name in a repo
+            async function getMilestoneByName(repoName, milestoneName) {
               try {
                 for (const state of ['open', 'closed']) {
                   const milestones = await github.paginate(github.rest.issues.listMilestones, {
                     owner: org,
-                    repo: repo.name,
+                    repo: repoName,
                     state: state,
                     per_page: 100
                   });
-                  existingMilestones.push(...milestones);
+                  const found = milestones.find(m => m.title === milestoneName);
+                  if (found) return found;
                 }
               } catch (error) {
-                console.log(`  ⚠️  Could not list milestones: ${error.message}`);
-                continue;
+                console.log(`  ⚠️  Could not list milestones in ${repoName}: ${error.message}`);
               }
+              return null;
+            }
 
-              const existingByName = new Map(existingMilestones.map(m => [m.title, m]));
+            // Determine trigger type
+            const isEventDriven = context.eventName === 'milestone';
+            const action = isEventDriven ? context.payload.action : null;
+            const eventMilestone = isEventDriven ? context.payload.milestone : null;
 
-              for (const sourceMilestone of sourceMilestones) {
-                const existing = existingByName.get(sourceMilestone.title);
+            console.log(`🔄 Milestone sync triggered by: ${context.eventName}${action ? ` (${action})` : ''}`);
+            if (dryRun) console.log('🧪 DRY RUN - No changes will be made');
 
-                if (existing) {
-                  // Check if needs update (description, due_on, state)
-                  const needsUpdate =
-                    existing.description !== sourceMilestone.description ||
-                    existing.due_on !== sourceMilestone.due_on ||
-                    existing.state !== sourceMilestone.state;
+            const targetRepos = await getTargetRepos();
+            console.log(`📦 Found ${targetRepos.length} target repositories`);
 
-                  if (needsUpdate) {
-                    console.log(`  📝 Updating "${sourceMilestone.title}"`);
+            let created = 0;
+            let updated = 0;
+            let deleted = 0;
+            let skipped = 0;
+            let warnings = 0;
+
+            // EVENT-DRIVEN: Handle single milestone event
+            if (isEventDriven && eventMilestone) {
+              console.log(`\n📋 Processing milestone: "${eventMilestone.title}" (${action})`);
+
+              for (const repo of targetRepos) {
+                console.log(`\n🔍 Processing ${repo.name}...`);
+
+                if (action === 'deleted') {
+                  // DELETE: Remove milestone from target repo
+                  const existing = await getMilestoneByName(repo.name, eventMilestone.title);
+                  if (existing) {
+                    console.log(`  🗑️  Deleting "${eventMilestone.title}"`);
+                    if (!dryRun) {
+                      try {
+                        await github.rest.issues.deleteMilestone({
+                          owner: org,
+                          repo: repo.name,
+                          milestone_number: existing.number
+                        });
+                        deleted++;
+                      } catch (error) {
+                        console.log(`  ⚠️  Could not delete: ${error.message}`);
+                      }
+                    } else {
+                      deleted++;
+                    }
+                  } else {
+                    console.log(`  ℹ️  Milestone not found, nothing to delete`);
+                  }
+
+                } else if (action === 'created') {
+                  // CREATE: Add milestone to target repo
+                  const existing = await getMilestoneByName(repo.name, eventMilestone.title);
+                  if (existing) {
+                    console.log(`  ⚠️  Milestone "${eventMilestone.title}" already exists, skipping`);
+                    warnings++;
+                  } else {
+                    console.log(`  ➕ Creating "${eventMilestone.title}"`);
+                    if (!dryRun) {
+                      try {
+                        await github.rest.issues.createMilestone({
+                          owner: org,
+                          repo: repo.name,
+                          title: eventMilestone.title,
+                          description: addSyncMarker(eventMilestone.description),
+                          due_on: eventMilestone.due_on || undefined,
+                          state: eventMilestone.state
+                        });
+                        created++;
+                      } catch (error) {
+                        console.log(`  ⚠️  Could not create: ${error.message}`);
+                      }
+                    } else {
+                      created++;
+                    }
+                  }
+
+                } else if (action === 'edited') {
+                  // EDIT: Update milestone in target repo (only if synced)
+                  const existing = await getMilestoneByName(repo.name, eventMilestone.title);
+                  if (!existing) {
+                    console.log(`  ℹ️  Milestone not found, creating it`);
+                    if (!dryRun) {
+                      try {
+                        await github.rest.issues.createMilestone({
+                          owner: org,
+                          repo: repo.name,
+                          title: eventMilestone.title,
+                          description: addSyncMarker(eventMilestone.description),
+                          due_on: eventMilestone.due_on || undefined,
+                          state: eventMilestone.state
+                        });
+                        created++;
+                      } catch (error) {
+                        console.log(`  ⚠️  Could not create: ${error.message}`);
+                      }
+                    } else {
+                      created++;
+                    }
+                  } else if (!hasSyncMarker(existing.description)) {
+                    console.log(`  ⚠️  Milestone "${eventMilestone.title}" was created manually, skipping update`);
+                    warnings++;
+                  } else {
+                    console.log(`  📝 Updating "${eventMilestone.title}"`);
                     if (!dryRun) {
                       try {
                         await github.rest.issues.updateMilestone({
                           owner: org,
                           repo: repo.name,
                           milestone_number: existing.number,
-                          title: sourceMilestone.title,
-                          description: sourceMilestone.description || '',
-                          due_on: sourceMilestone.due_on || undefined,
-                          state: sourceMilestone.state
+                          title: eventMilestone.title,
+                          description: addSyncMarker(eventMilestone.description),
+                          due_on: eventMilestone.due_on || undefined,
+                          state: eventMilestone.state
                         });
                         updated++;
                       } catch (error) {
@@ -135,28 +201,117 @@ jobs:
                     } else {
                       updated++;
                     }
-                  } else {
-                    skipped++;
                   }
-                } else {
-                  // Create new milestone
-                  console.log(`  ➕ Creating "${sourceMilestone.title}"`);
-                  if (!dryRun) {
-                    try {
-                      await github.rest.issues.createMilestone({
-                        owner: org,
-                        repo: repo.name,
-                        title: sourceMilestone.title,
-                        description: sourceMilestone.description || '',
-                        due_on: sourceMilestone.due_on || undefined,
-                        state: sourceMilestone.state
-                      });
-                      created++;
-                    } catch (error) {
-                      console.log(`  ⚠️  Could not create: ${error.message}`);
+                }
+              }
+
+            } else {
+              // SCHEDULED/MANUAL: Full sync of all milestones
+              console.log(`\n📋 Full sync mode - syncing all milestones from ${sourceRepo}`);
+
+              // Get all milestones from source repo
+              const sourceMilestones = [];
+              for (const state of ['open', 'closed']) {
+                const milestones = await github.paginate(github.rest.issues.listMilestones, {
+                  owner: org,
+                  repo: sourceRepo,
+                  state: state,
+                  per_page: 100
+                });
+                sourceMilestones.push(...milestones);
+              }
+
+              console.log(`Found ${sourceMilestones.length} milestones in ${sourceRepo}:`);
+              sourceMilestones.forEach(m => console.log(`  - ${m.title} (${m.state})`));
+
+              if (sourceMilestones.length === 0) {
+                console.log('ℹ️  No milestones to sync');
+                return;
+              }
+
+              for (const repo of targetRepos) {
+                console.log(`\n🔍 Processing ${repo.name}...`);
+
+                // Get existing milestones in target repo
+                const existingMilestones = [];
+                try {
+                  for (const state of ['open', 'closed']) {
+                    const milestones = await github.paginate(github.rest.issues.listMilestones, {
+                      owner: org,
+                      repo: repo.name,
+                      state: state,
+                      per_page: 100
+                    });
+                    existingMilestones.push(...milestones);
+                  }
+                } catch (error) {
+                  console.log(`  ⚠️  Could not list milestones: ${error.message}`);
+                  continue;
+                }
+
+                const existingByName = new Map(existingMilestones.map(m => [m.title, m]));
+
+                for (const sourceMilestone of sourceMilestones) {
+                  const existing = existingByName.get(sourceMilestone.title);
+
+                  if (existing) {
+                    // Check if manually created (no sync marker)
+                    if (!hasSyncMarker(existing.description)) {
+                      console.log(`  ⚠️  "${sourceMilestone.title}" was created manually, skipping`);
+                      warnings++;
+                      continue;
+                    }
+
+                    // Check if needs update
+                    const sourceDescWithMarker = addSyncMarker(sourceMilestone.description);
+                    const needsUpdate =
+                      existing.description !== sourceDescWithMarker ||
+                      existing.due_on !== sourceMilestone.due_on ||
+                      existing.state !== sourceMilestone.state;
+
+                    if (needsUpdate) {
+                      console.log(`  📝 Updating "${sourceMilestone.title}"`);
+                      if (!dryRun) {
+                        try {
+                          await github.rest.issues.updateMilestone({
+                            owner: org,
+                            repo: repo.name,
+                            milestone_number: existing.number,
+                            title: sourceMilestone.title,
+                            description: sourceDescWithMarker,
+                            due_on: sourceMilestone.due_on || undefined,
+                            state: sourceMilestone.state
+                          });
+                          updated++;
+                        } catch (error) {
+                          console.log(`  ⚠️  Could not update: ${error.message}`);
+                        }
+                      } else {
+                        updated++;
+                      }
+                    } else {
+                      skipped++;
                     }
                   } else {
-                    created++;
+                    // Create new milestone with sync marker
+                    console.log(`  ➕ Creating "${sourceMilestone.title}"`);
+                    if (!dryRun) {
+                      try {
+                        await github.rest.issues.createMilestone({
+                          owner: org,
+                          repo: repo.name,
+                          title: sourceMilestone.title,
+                          description: addSyncMarker(sourceMilestone.description),
+                          due_on: sourceMilestone.due_on || undefined,
+                          state: sourceMilestone.state
+                        });
+                        created++;
+                      } catch (error) {
+                        console.log(`  ⚠️  Could not create: ${error.message}`);
+                      }
+                    } else {
+                      created++;
+                    }
                   }
                 }
               }
@@ -165,4 +320,8 @@ jobs:
             console.log(`\n✅ Sync complete!`);
             console.log(`   Created: ${created}`);
             console.log(`   Updated: ${updated}`);
+            console.log(`   Deleted: ${deleted}`);
             console.log(`   Skipped (already in sync): ${skipped}`);
+            if (warnings > 0) {
+              console.log(`   ⚠️  Warnings (manual milestones skipped): ${warnings}`);
+            }
